@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Plus, Search, Edit2, Trash2 } from 'lucide-react';
+import { useState, useMemo, useCallback, useRef } from 'react';
+import { Plus, Search, Edit2, Trash2, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
-import { useVendedores, formatDate } from '@/hooks/useStorage';
+import { useVendedores, formatDate } from '@/hooks/supabase/useSupabaseData';
 import type { Vendedor } from '@/types';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -22,18 +22,30 @@ const vendedorSchema = z.object({
 });
 
 export default function Vendedores() {
-  const { vendedores, agregarVendedor, actualizarVendedor, eliminarVendedor, buscarVendedores } = useVendedores();
+  const { 
+    data: vendedores, 
+    create: agregarVendedor, 
+    update: actualizarVendedor, 
+    delete: eliminarVendedor,
+  } = useVendedores();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingVendedor, setEditingVendedor] = useState<Vendedor | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [vendedorToDelete, setVendedorToDelete] = useState<Vendedor | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const { control, handleSubmit, reset, formState: { errors } } = useForm<z.infer<typeof vendedorSchema>>({
     resolver: zodResolver(vendedorSchema),
     defaultValues: { nombre: '' }
   });
+
+  const buscarVendedores = useCallback((query: string) => {
+    const q = query.toLowerCase();
+    return vendedores.filter(v => v.activo && v.nombre.toLowerCase().includes(q));
+  }, [vendedores]);
 
   const filteredVendedores = useMemo(() => {
     return searchQuery ? buscarVendedores(searchQuery) : vendedores;
@@ -50,13 +62,24 @@ export default function Vendedores() {
     setDialogOpen(true);
   };
 
-  const handleSave = (data: z.infer<typeof vendedorSchema>) => {
-    if (editingVendedor) {
-      actualizarVendedor(editingVendedor.id, data);
-    } else {
-      agregarVendedor(data);
+  const handleSave = async (data: z.infer<typeof vendedorSchema>) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      if (editingVendedor) {
+        await actualizarVendedor(editingVendedor.id, data);
+      } else {
+        await agregarVendedor(data);
+      }
+      setDialogOpen(false);
+    } catch (error) {
+      console.error('Error guardando vendedor:', error);
+      alert('Error al guardar el vendedor');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
-    setDialogOpen(false);
   };
 
   const handleDelete = (vendedor: Vendedor) => {
@@ -64,11 +87,16 @@ export default function Vendedores() {
     setDeleteDialogOpen(true);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (vendedorToDelete) {
-      eliminarVendedor(vendedorToDelete.id);
-      setDeleteDialogOpen(false);
-      setVendedorToDelete(null);
+      try {
+        await eliminarVendedor(vendedorToDelete.id);
+        setDeleteDialogOpen(false);
+        setVendedorToDelete(null);
+      } catch (error) {
+        console.error('Error eliminando vendedor:', error);
+        alert('Error al eliminar el vendedor');
+      }
     }
   };
 
@@ -162,7 +190,7 @@ export default function Vendedores() {
                 name="nombre"
                 control={control}
                 render={({ field }) => (
-                  <Input {...field} id="nombre" placeholder="Nombre del vendedor" />
+                  <Input {...field} id="nombre" placeholder="Nombre del vendedor" disabled={saving} />
                 )}
               />
               {errors.nombre && <p className="text-sm text-red-500">{errors.nombre.message}</p>}
@@ -171,7 +199,8 @@ export default function Vendedores() {
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit">
+              <Button type="submit" disabled={saving}>
+                {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {editingVendedor ? 'Guardar Cambios' : 'Crear Vendedor'}
               </Button>
             </DialogFooter>

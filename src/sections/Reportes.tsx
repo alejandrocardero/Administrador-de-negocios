@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { 
   BarChart3, TrendingUp, TrendingDown, DollarSign, Printer
 } from 'lucide-react';
@@ -18,15 +18,15 @@ import {
 import { 
   useVentasDiarias, useCompras, useGastos, 
   formatCurrency, formatDate 
-} from '@/hooks/useStorage';
-import type { VentaDiaria, Compra, Gasto, ReportFilters } from '@/types';
+} from '@/hooks/supabase/useSupabaseData';
+import type { Compra, Gasto, ReportFilters } from '@/types';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
 export default function Reportes({ initialFilters }: { initialFilters?: ReportFilters }) {
-  const { ventas, getVentasByFecha } = useVentasDiarias();
-  const { compras, getComprasByFecha } = useCompras();
-  const { gastos, getGastosByFecha } = useGastos();
+  const { getVentasByFecha } = useVentasDiarias();
+  const { getComprasByFecha } = useCompras();
+  const { getGastosByFecha } = useGastos();
 
   const [fechaInicio, setFechaInicio] = useState<string>(initialFilters?.fechaInicio || (() => {
     const hoy = new Date();
@@ -39,36 +39,20 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
   })());
   const [reporteTipo, setReporteTipo] = useState<'general' | 'ventas' | 'compras' | 'gastos' | 'utilidad'>(initialFilters?.reporteTipo || 'general');
 
-  const [data, setData] = useState({
-    ventas: [] as VentaDiaria[],
-    compras: [] as Compra[],
-    gastos: [] as Gasto[],
-    ventasPorDia: [] as {fecha: string; total: number}[],
-    gastosPorCategoria: [] as {categoria: string; total: number}[],
-    productosMasVendidos: [] as {nombre: string; cantidad: number; total: number}[],
-    resumen: {
-      totalVentas: 0,
-      totalCompras: 0,
-      totalGastos: 0,
-      utilidad: 0,
-      margen: 0,
-    },
-  });
+  const ventasPeriodo = useMemo(() => getVentasByFecha(fechaInicio, fechaFin), [fechaInicio, fechaFin, getVentasByFecha]);
+  const comprasPeriodo = useMemo(() => getComprasByFecha(fechaInicio, fechaFin), [fechaInicio, fechaFin, getComprasByFecha]);
+  const gastosPeriodo = useMemo(() => getGastosByFecha(fechaInicio, fechaFin), [fechaInicio, fechaFin, getGastosByFecha]);
 
-  useEffect(() => {
-    const ventasPeriodo = getVentasByFecha(fechaInicio, fechaFin);
-    const comprasPeriodo = getComprasByFecha(fechaInicio, fechaFin);
-    const gastosPeriodo = getGastosByFecha(fechaInicio, fechaFin);
-
-    const totalVentas = ventasPeriodo.reduce((sum: number, v: VentaDiaria) => sum + v.totalVendido, 0);
-    const totalCompras = comprasPeriodo.reduce((sum: number, c: Compra) => sum + c.total, 0);
-    const totalGastos = gastosPeriodo.reduce((sum: number, g: Gasto) => sum + g.monto, 0);
+  const data = useMemo(() => {
+    const totalVentas = ventasPeriodo.reduce((sum, v) => sum + v.totalVendido, 0);
+    const totalCompras = comprasPeriodo.reduce((sum, c) => sum + c.total, 0);
+    const totalGastos = gastosPeriodo.reduce((sum, g) => sum + g.monto, 0);
     const utilidad = totalVentas - totalCompras - totalGastos;
     const margen = totalVentas > 0 ? (utilidad / totalVentas) * 100 : 0;
 
     // Ventas por día
     const ventasPorDiaMap = new Map<string, number>();
-    ventasPeriodo.forEach((v: VentaDiaria) => {
+    ventasPeriodo.forEach((v) => {
       const fecha = v.fecha.split('T')[0];
       ventasPorDiaMap.set(fecha, (ventasPorDiaMap.get(fecha) || 0) + v.totalVendido);
     });
@@ -78,7 +62,7 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
 
     // Gastos por categoría
     const gastosPorCategoriaMap = new Map<string, number>();
-    gastosPeriodo.forEach((g: Gasto) => {
+    gastosPeriodo.forEach((g) => {
       gastosPorCategoriaMap.set(g.categoria, (gastosPorCategoriaMap.get(g.categoria) || 0) + g.monto);
     });
     const gastosPorCategoria = Array.from(gastosPorCategoriaMap.entries())
@@ -86,11 +70,11 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
 
     // Productos más vendidos (de compras)
     const productosCompradosMap = new Map<string, {nombre: string; cantidad: number; total: number}>();
-    comprasPeriodo.forEach((c: Compra) => {
+    comprasPeriodo.forEach((c) => {
       c.detalles.forEach((d) => {
         const actual = productosCompradosMap.get(d.productoId) || { nombre: d.productoNombre, cantidad: 0, total: 0 };
         actual.cantidad += d.cantidad;
-        actual.total += d.subtotal; // Use subtotal from detalle
+        actual.total += d.subtotal;
         productosCompradosMap.set(d.productoId, actual);
       });
     });
@@ -98,7 +82,7 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
       .sort((a, b) => b.cantidad - a.cantidad)
       .slice(0, 10);
 
-    setData({
+    return {
       ventas: ventasPeriodo,
       compras: comprasPeriodo,
       gastos: gastosPeriodo,
@@ -112,8 +96,8 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
         utilidad,
         margen,
       },
-    });
-  }, [fechaInicio, fechaFin, reporteTipo, ventas, compras, gastos]);
+    };
+  }, [ventasPeriodo, comprasPeriodo, gastosPeriodo]);
 
   const handlePrint = () => {
     window.print();

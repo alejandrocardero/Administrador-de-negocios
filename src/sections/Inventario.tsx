@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { 
-  Plus, Search, Edit2, Trash2, Package, AlertTriangle, BarChart3
+  Plus, Search, Edit2, Trash2, Package, AlertTriangle, BarChart3, Loader2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,8 +17,8 @@ import { Label } from '@/components/ui/label';
 import { 
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
 } from '@/components/ui/table';
-import { useProductos, formatCurrency } from '@/hooks/useStorage';
-import type { Producto, CategoriaProducto } from '@/types';
+import { useProductos, useProductRotation, formatCurrency } from '@/hooks/supabase/useSupabaseData';
+import type { Producto, CategoriaProducto, ProductRotationStats } from '@/types';
 
 const categorias: { value: CategoriaProducto; label: string }[] = [
   { value: 'aseo', label: 'Aseo' },
@@ -30,23 +30,30 @@ const categorias: { value: CategoriaProducto; label: string }[] = [
 
 export default function Inventario() {
   const { 
-    productos, 
-    agregarProducto, 
-    actualizarProducto, 
-    eliminarProducto,
-    getProductosBajoStock,
-    buscarProductos,
-    getProductosByCategoria 
+    data: productos, 
+    create: agregarProducto, 
+    update: actualizarProducto, 
+    delete: eliminarProducto,
   } = useProductos();
+
+  const { 
+    data: rotationData, 
+    loading: rotationLoading, 
+    getTopByRotation 
+  } = useProductRotation();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [categoriaFilter, setCategoriaFilter] = useState<string>('todas');
   const [showBajoStock, setShowBajoStock] = useState(false);
+  const [viewMode, setViewMode] = useState<'lista' | 'rotacion'>('lista');
   
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Producto | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState<Producto | null>(null);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const [formData, setFormData] = useState({
     codigo: '',
@@ -55,10 +62,26 @@ export default function Inventario() {
     categoria: 'otros' as CategoriaProducto,
     precioCompra: '',
     precioVenta: '',
+    porcentajeGanancia: '30',
     stock: '',
     stockMinimo: '',
     unidad: 'unidad',
   });
+
+  // Helper functions to replace the old useProductos methods
+  const getProductosBajoStock = () => productos.filter(p => p.stock <= p.stockMinimo && p.activo);
+  const buscarProductos = (query: string) => {
+    const q = query.toLowerCase();
+    return productos.filter(p => 
+      p.activo && (
+        p.nombre.toLowerCase().includes(q) ||
+        p.codigo.toLowerCase().includes(q) ||
+        (p.descripcion || '').toLowerCase().includes(q)
+      )
+    );
+  };
+  const getProductosByCategoria = (categoria: string) => 
+    productos.filter(p => p.categoria === categoria && p.activo);
 
   const filteredProducts = showBajoStock 
     ? getProductosBajoStock()
@@ -68,16 +91,30 @@ export default function Inventario() {
         ? buscarProductos(searchQuery)
         : productos;
 
+  const topProducts = getTopByRotation(10);
+
+  const productsForTable = viewMode === 'rotacion' 
+    ? (() => {
+        const rotationMap = new Map(rotationData.map(r => [r.productoId, r]));
+        return filteredProducts
+          .map(p => ({ producto: p, rotation: rotationMap.get(p.id) }))
+          .filter(({ rotation }) => rotation !== undefined)
+          .sort((a, b) => (b.rotation!.rotacion - a.rotation!.rotacion))
+          .map(({ producto }) => producto);
+      })()
+    : filteredProducts;
+
   const handleOpenDialog = (producto?: Producto) => {
     if (producto) {
       setEditingProduct(producto);
       setFormData({
         codigo: producto.codigo,
         nombre: producto.nombre,
-        descripcion: producto.descripcion,
+        descripcion: producto.descripcion || '',
         categoria: producto.categoria,
         precioCompra: producto.precioCompra.toString(),
         precioVenta: producto.precioVenta.toString(),
+        porcentajeGanancia: (producto.porcentajeGanancia ?? 30).toString(),
         stock: producto.stock.toString(),
         stockMinimo: producto.stockMinimo.toString(),
         unidad: producto.unidad,
@@ -91,34 +128,87 @@ export default function Inventario() {
         categoria: 'otros',
         precioCompra: '',
         precioVenta: '',
+        porcentajeGanancia: '30',
         stock: '',
         stockMinimo: '',
         unidad: 'unidad',
       });
     }
     setDialogOpen(true);
+    setFormErrors({});
   };
 
-  const handleSave = () => {
-    const productoData = {
-      codigo: formData.codigo,
-      nombre: formData.nombre,
-      descripcion: formData.descripcion,
-      categoria: formData.categoria,
-      precioCompra: parseFloat(formData.precioCompra) || 0,
-      precioVenta: parseFloat(formData.precioVenta) || 0,
-      stock: parseInt(formData.stock) || 0,
-      stockMinimo: parseInt(formData.stockMinimo) || 0,
-      unidad: formData.unidad,
-      activo: true,
-    };
+  function updateField<K extends keyof typeof formData>(key: K, value: (typeof formData)[K]) {
+    setFormData(prev => ({ ...prev, [key]: value }) as typeof formData);
+    setFormErrors(prev => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
 
-    if (editingProduct) {
-      actualizarProducto(editingProduct.id, productoData);
-    } else {
-      agregarProducto(productoData);
+  const handleSave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const errors: Record<string, string> = {};
+      const text: Array<keyof typeof formData> = ['nombre', 'categoria', 'unidad', 'precioCompra', 'precioVenta', 'stock', 'stockMinimo'];
+      text.forEach(field => {
+        if (!String(formData[field]).trim()) errors[field] = 'Campo obligatorio';
+      });
+
+      const precioCompra = formData.precioCompra.trim();
+      if (precioCompra && (isNaN(parseFloat(precioCompra)) || parseFloat(precioCompra) < 0)) {
+        errors.precioCompra = 'Ingrese un precio válido';
+      }
+      const precioVenta = formData.precioVenta.trim();
+      if (precioVenta && (isNaN(parseFloat(precioVenta)) || parseFloat(precioVenta) < 0)) {
+        errors.precioVenta = 'Ingrese un precio válido';
+      }
+      const stock = formData.stock.trim();
+      if (stock && (!Number.isInteger(Number(stock)) || Number(stock) < 0)) {
+        errors.stock = 'Ingrese un número entero válido';
+      }
+      const stockMinimo = formData.stockMinimo.trim();
+      if (stockMinimo && (!Number.isInteger(Number(stockMinimo)) || Number(stockMinimo) < 0)) {
+        errors.stockMinimo = 'Ingrese un número entero válido';
+      }
+
+      if (Object.keys(errors).length > 0) {
+        setFormErrors(errors);
+        return;
+      }
+      setFormErrors({});
+
+      const productoData = {
+        codigo: formData.codigo,
+        nombre: formData.nombre,
+        descripcion: formData.descripcion,
+        categoria: formData.categoria,
+        precioCompra: parseFloat(formData.precioCompra) || 0,
+        precioVenta: parseFloat(formData.precioVenta) || 0,
+        porcentajeGanancia: parseFloat(formData.porcentajeGanancia) || 30,
+        stock: parseInt(formData.stock) || 0,
+        stockMinimo: parseInt(formData.stockMinimo) || 0,
+        unidad: formData.unidad,
+        activo: true,
+      };
+
+      if (editingProduct) {
+        await actualizarProducto(editingProduct.id, productoData);
+      } else {
+        await agregarProducto(productoData);
+      }
+      setDialogOpen(false);
+    } catch (error) {
+      console.error('Error guardando producto:', error);
+      alert('Error al guardar el producto');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
-    setDialogOpen(false);
   };
 
   const handleDelete = (producto: Producto) => {
@@ -126,11 +216,16 @@ export default function Inventario() {
     setDeleteDialogOpen(true);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (productToDelete) {
-      eliminarProducto(productToDelete.id);
-      setDeleteDialogOpen(false);
-      setProductToDelete(null);
+      try {
+        await eliminarProducto(productToDelete.id);
+        setDeleteDialogOpen(false);
+        setProductToDelete(null);
+      } catch (error) {
+        console.error('Error eliminando producto:', error);
+        alert('Error al eliminar el producto');
+      }
     }
   };
 
@@ -152,6 +247,46 @@ export default function Inventario() {
   const totalInventario = productos.reduce((sum, p) => sum + (p.precioCompra * p.stock), 0);
   const productosAgotados = productos.filter(p => p.stock <= 0).length;
   const productosBajoStock = getProductosBajoStock().length;
+
+  const rotationMap = new Map(rotationData.map(r => [r.productoId, r]));
+
+  const getRotationForProduct = (productoId: string) => rotationMap.get(productoId);
+
+  const getRotationColumns = (producto: Producto) => {
+    const rot = getRotationForProduct(producto.id);
+    if (!rot) return null;
+    return (
+      <>
+        <TableCell className="text-right">{rot.vendidoSemana} / {rot.vendidoMes} / {rot.totalVendido}</TableCell>
+        <TableCell className="text-right">{formatCurrency(rot.precioVenta)}</TableCell>
+        <TableCell className="text-right">{formatCurrency(rot.gananciaPorUnidad)}</TableCell>
+        <TableCell className="text-right">{formatCurrency(rot.gananciaSemanal)}</TableCell>
+        <TableCell className="text-right">{formatCurrency(rot.gananciaMensual)}</TableCell>
+        <TableCell className="text-right font-medium text-blue-600">{rot.rotacion.toFixed(2)}</TableCell>
+      </>
+    );
+  };
+
+  const getLeaderCardStats = (rot: ProductRotationStats) => (
+    <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-lg">
+      <div className="min-w-0">
+        <p className="text-xs text-slate-500">Vendidos (Sem/Mes/Total)</p>
+        <p className="text-sm font-medium">{rot.vendidoSemana} / {rot.vendidoMes} / {rot.totalVendido}</p>
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs text-slate-500">Precio / Ganancia Ud.</p>
+        <p className="text-sm font-medium truncate">{formatCurrency(rot.precioVenta)} / {formatCurrency(rot.gananciaPorUnidad)}</p>
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs text-slate-500">Ganancia Semanal</p>
+        <p className="text-sm font-medium text-green-600">{formatCurrency(rot.gananciaSemanal)}</p>
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs text-slate-500">Ganancia Mensual</p>
+        <p className="text-sm font-medium text-green-600">{formatCurrency(rot.gananciaMensual)}</p>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -203,7 +338,42 @@ export default function Inventario() {
         </Card>
       </div>
 
-      {/* Filtros y Acciones */}
+      {/* Productos Líderes - Top 10 por Rotación */}
+      {!rotationLoading && topProducts.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <BarChart3 className="w-5 h-5 text-blue-500" />
+              Productos Líderes (Top 10 por Rotación)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              {topProducts.map((rot, index) => (
+                <div key={rot.productoId} className="border rounded-lg p-4 hover:shadow-md transition-shadow flex flex-col gap-3">
+                  <div className="flex items-start justify-between gap-2 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="w-6 h-6 shrink-0 flex items-center justify-center bg-blue-100 text-blue-700 rounded-full text-sm font-bold">
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-sm truncate">{rot.productoNombre}</p>
+                        <p className="text-xs text-slate-500 truncate">{rot.productoCodigo || '—'}</p>
+                      </div>
+                    </div>
+                    <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded shrink-0 whitespace-nowrap">
+                      Rot: {rot.rotacion.toFixed(2)}
+                    </span>
+                  </div>
+                  {getLeaderCardStats(rot)}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Filtros, Vista y Acciones */}
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
@@ -236,6 +406,15 @@ export default function Inventario() {
                 <AlertTriangle className="w-4 h-4 mr-2" />
                 Bajo Stock
               </Button>
+              <Select value={viewMode} onValueChange={(v) => setViewMode(v as 'lista' | 'rotacion')}>
+                <SelectTrigger className="w-full sm:w-36">
+                  <SelectValue placeholder="Vista" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="lista">Lista</SelectItem>
+                  <SelectItem value="rotacion">Rotación</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <Button onClick={() => handleOpenDialog()}>
               <Plus className="w-4 h-4 mr-2" />
@@ -248,71 +427,101 @@ export default function Inventario() {
       {/* Tabla de Productos */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Lista de Productos</CardTitle>
+          <CardTitle className="text-lg flex items-center gap-2">
+            Lista de Productos
+            {viewMode === 'rotacion' && (
+              <Badge variant="secondary" className="bg-blue-100 text-blue-700 ml-2">
+                Ordenado por Rotación
+              </Badge>
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Código</TableHead>
-                  <TableHead>Nombre</TableHead>
-                  <TableHead>Categoría</TableHead>
-                  <TableHead className="text-right">P. Compra</TableHead>
-                  <TableHead className="text-right">P. Venta</TableHead>
-                  <TableHead className="text-right">Stock</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredProducts.length === 0 ? (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-slate-500">
-                      No se encontraron productos
-                    </TableCell>
+                    <TableHead>Código</TableHead>
+                    <TableHead>Nombre</TableHead>
+                    <TableHead>Categoría</TableHead>
+                    {viewMode === 'rotacion' ? (
+                      <>
+                        <TableHead className="text-right">Vendidos (Sem/Mes/Total)</TableHead>
+                        <TableHead className="text-right">Precio</TableHead>
+                        <TableHead className="text-right">Ganancia/Ud</TableHead>
+                        <TableHead className="text-right">Ganancia Semanal</TableHead>
+                        <TableHead className="text-right">Ganancia Mensual</TableHead>
+                        <TableHead className="text-right">Rotación</TableHead>
+                      </>
+                    ) : (
+                      <>
+                        <TableHead className="text-right">P. Compra</TableHead>
+                        <TableHead className="text-right">P. Venta</TableHead>
+                        <TableHead className="text-right">Stock</TableHead>
+                        <TableHead>Estado</TableHead>
+                      </>
+                    )}
+                    <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
-                ) : (
-                  filteredProducts.map((producto) => (
-                    <TableRow key={producto.id}>
-                      <TableCell className="font-medium">{producto.codigo}</TableCell>
-                      <TableCell>{producto.nombre}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{getCategoriaLabel(producto.categoria)}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right">{formatCurrency(producto.precioCompra)}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(producto.precioVenta)}</TableCell>
-                      <TableCell className="text-right">
-                        {producto.stock} {producto.unidad}
-                      </TableCell>
-                      <TableCell>{getStockBadge(producto.stock, producto.stockMinimo)}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleOpenDialog(producto)}
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDelete(producto)}
-                            className="text-red-500 hover:text-red-700"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
+                </TableHeader>
+                <TableBody>
+                  {productsForTable.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={viewMode === 'rotacion' ? 9 : 8} className="text-center py-8 text-slate-500">
+                        {rotationLoading 
+                          ? 'Cargando datos de rotación...' 
+                          : viewMode === 'rotacion' 
+                            ? 'No hay productos con datos de rotación' 
+                            : 'No se encontraron productos'}
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+                  ) : (
+                    productsForTable.map((producto) => (
+                      <TableRow key={producto.id}>
+                        <TableCell className="font-medium">{producto.codigo}</TableCell>
+                        <TableCell>{producto.nombre}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{getCategoriaLabel(producto.categoria)}</Badge>
+                        </TableCell>
+                        {viewMode === 'rotacion' ? (
+                          getRotationColumns(producto)
+                        ) : (
+                          <>
+                            <TableCell className="text-right">{formatCurrency(producto.precioCompra)}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(producto.precioVenta)}</TableCell>
+                            <TableCell className="text-right">
+                              {producto.stock} {producto.unidad}
+                            </TableCell>
+                            <TableCell>{getStockBadge(producto.stock, producto.stockMinimo)}</TableCell>
+                          </>
+                        )}
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleOpenDialog(producto)}
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(producto)}
+                              className="text-red-500 hover:text-red-700"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
 
       {/* Dialog para agregar/editar producto */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -322,17 +531,17 @@ export default function Inventario() {
               {editingProduct ? 'Editar Producto' : 'Nuevo Producto'}
             </DialogTitle>
             <DialogDescription>
-              Complete los datos del producto
+              Complete los datos del producto. Todos los campos son obligatorios excepto Código y Descripción.
             </DialogDescription>
           </DialogHeader>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="codigo">Código *</Label>
+              <Label htmlFor="codigo">Código</Label>
               <Input
                 id="codigo"
                 value={formData.codigo}
-                onChange={(e) => setFormData({ ...formData, codigo: e.target.value })}
+                onChange={(e) => updateField('codigo', e.target.value)}
                 placeholder="Ej: PROD001"
               />
             </div>
@@ -341,24 +550,26 @@ export default function Inventario() {
               <Input
                 id="nombre"
                 value={formData.nombre}
-                onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+                onChange={(e) => updateField('nombre', e.target.value)}
                 placeholder="Nombre del producto"
               />
+              {formErrors.nombre && <p className="text-sm text-red-600">{formErrors.nombre}</p>}
             </div>
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="descripcion">Descripción</Label>
               <Input
                 id="descripcion"
                 value={formData.descripcion}
-                onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
+                onChange={(e) => updateField('descripcion', e.target.value)}
                 placeholder="Descripción del producto"
               />
+              {formErrors.descripcion && <p className="text-sm text-red-600">{formErrors.descripcion}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="categoria">Categoría *</Label>
               <Select 
                 value={formData.categoria} 
-                onValueChange={(value) => setFormData({ ...formData, categoria: value as CategoriaProducto })}
+                onValueChange={(value) => updateField('categoria', value as CategoriaProducto)}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -369,15 +580,17 @@ export default function Inventario() {
                   ))}
                 </SelectContent>
               </Select>
+              {formErrors.categoria && <p className="text-sm text-red-600">{formErrors.categoria}</p>}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="unidad">Unidad</Label>
+              <Label htmlFor="unidad">Unidad *</Label>
               <Input
                 id="unidad"
                 value={formData.unidad}
-                onChange={(e) => setFormData({ ...formData, unidad: e.target.value })}
+                onChange={(e) => updateField('unidad', e.target.value)}
                 placeholder="unidad, kg, litro, etc."
               />
+              {formErrors.unidad && <p className="text-sm text-red-600">{formErrors.unidad}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="precioCompra">Precio de Compra *</Label>
@@ -385,9 +598,10 @@ export default function Inventario() {
                 id="precioCompra"
                 type="number"
                 value={formData.precioCompra}
-                onChange={(e) => setFormData({ ...formData, precioCompra: e.target.value })}
+                onChange={(e) => updateField('precioCompra', e.target.value)}
                 placeholder="0"
               />
+              {formErrors.precioCompra && <p className="text-sm text-red-600">{formErrors.precioCompra}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="precioVenta">Precio de Venta *</Label>
@@ -395,9 +609,10 @@ export default function Inventario() {
                 id="precioVenta"
                 type="number"
                 value={formData.precioVenta}
-                onChange={(e) => setFormData({ ...formData, precioVenta: e.target.value })}
+                onChange={(e) => updateField('precioVenta', e.target.value)}
                 placeholder="0"
               />
+              {formErrors.precioVenta && <p className="text-sm text-red-600">{formErrors.precioVenta}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="stock">Stock Actual *</Label>
@@ -405,9 +620,10 @@ export default function Inventario() {
                 id="stock"
                 type="number"
                 value={formData.stock}
-                onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
+                onChange={(e) => updateField('stock', e.target.value)}
                 placeholder="0"
               />
+              {formErrors.stock && <p className="text-sm text-red-600">{formErrors.stock}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="stockMinimo">Stock Mínimo *</Label>
@@ -415,9 +631,10 @@ export default function Inventario() {
                 id="stockMinimo"
                 type="number"
                 value={formData.stockMinimo}
-                onChange={(e) => setFormData({ ...formData, stockMinimo: e.target.value })}
+                onChange={(e) => updateField('stockMinimo', e.target.value)}
                 placeholder="0"
               />
+              {formErrors.stockMinimo && <p className="text-sm text-red-600">{formErrors.stockMinimo}</p>}
             </div>
           </div>
 
@@ -425,7 +642,8 @@ export default function Inventario() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleSave}>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               {editingProduct ? 'Guardar Cambios' : 'Crear Producto'}
             </Button>
           </DialogFooter>

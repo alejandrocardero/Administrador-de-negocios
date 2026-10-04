@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Plus, Search, Trash2, Receipt, Eye } from 'lucide-react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { Plus, Trash2, Receipt, Eye, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,103 +15,64 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
-import { formatCurrency, formatDate, generateId } from '@/hooks/useStorage';
+import { useCompras, useCompradores, useProductos, formatCurrency, formatDate } from '@/hooks/supabase/useSupabaseData';
 import type { Compra, DetalleCompra, Comprador, Producto } from '@/types';
 
-function getCompradoresFromStorage(): Comprador[] {
-  try {
-    const item = localStorage.getItem('compradores');
-    if (item) {
-      const parsed = JSON.parse(item);
-      return Array.isArray(parsed) ? parsed.filter((c: Comprador) => c.activo) : [];
-    }
-  } catch {
-  }
-  return [];
-}
-
-function getProductosFromStorage(): Producto[] {
-  try {
-    const item = localStorage.getItem('productos');
-    if (item) {
-      const parsed = JSON.parse(item);
-      return Array.isArray(parsed) ? parsed.filter((p: Producto) => p.activo) : [];
-    }
-  } catch {
-  }
-  return [];
-}
-
-function getComprasFromStorage(): Compra[] {
-  try {
-    const item = localStorage.getItem('compras');
-    if (item) {
-      const parsed = JSON.parse(item);
-      return Array.isArray(parsed) ? parsed : [];
-    }
-  } catch {
-  }
-  return [];
-}
-
-function saveComprasToStorage(compras: Compra[]): void {
-  localStorage.setItem('compras', JSON.stringify(compras));
-}
-
-function saveProductosToStorage(productos: Producto[]): void {
-  localStorage.setItem('productos', JSON.stringify(productos));
-}
-
 export default function HacerCompras() {
-  const [compradores, setCompradores] = useState<Comprador[]>([]);
-  const [compras, setCompras] = useState<Compra[]>([]);
-  const [productos, setProductos] = useState<Producto[]>([]);
+  const { data: compras, create: crearCompra, refetch: refetchCompras } = useCompras();
+  const { data: compradores } = useCompradores();
+  const { data: productos, update: actualizarProducto } = useProductos();
+
   const [selectedCompra, setSelectedCompra] = useState<Compra | null>(null);
 
-  useEffect(() => {
-    setCompradores(getCompradoresFromStorage());
-    setCompras(getComprasFromStorage());
-    setProductos(getProductosFromStorage());
+  const productosNecesarios = useMemo(() =>
+    productos.filter(p => p.stock <= p.stockMinimo || p.stock <= 0),
+    [productos]
+  );
 
-    const interval = setInterval(() => {
-      setCompradores(getCompradoresFromStorage());
-      setCompras(getComprasFromStorage());
-      setProductos(getProductosFromStorage());
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const productosNecesarios = productos.filter(p => p.stock <= p.stockMinimo || p.stock <= 0);
-  
   const [nuevaCompraOpen, setNuevaCompraOpen] = useState(false);
   const [compradorSearch, setCompradorSearch] = useState('');
   const [selectedComprador, setSelectedComprador] = useState<Comprador | null>(null);
   const [productoSearch, setProductoSearch] = useState('');
+  const [compradorSugOpen, setCompradorSugOpen] = useState(false);
+  const [productoSugOpen, setProductoSugOpen] = useState(false);
   const [detalles, setDetalles] = useState<DetalleCompra[]>([]);
   const [metodoPago, setMetodoPago] = useState<Compra['metodoPago']>('efectivo');
   const [notas, setNotas] = useState('');
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
-  const filteredCompradores = compradorSearch
-    ? compradores.filter(c => c.nombre.toLowerCase().includes(compradorSearch.toLowerCase()))
-    : [];
+  // Al cerrar el diálogo, ocultar ambas barras de sugerencias
+  // (el blur programático no siempre dispara al desmontar el contenido del Dialog)
+  useEffect(() => {
+    if (!nuevaCompraOpen) {
+      setCompradorSugOpen(false);
+      setProductoSugOpen(false);
+    }
+  }, [nuevaCompraOpen]);
 
-  const filteredProductos = productoSearch
-    ? productos.filter(p => 
-        p.nombre.toLowerCase().includes(productoSearch.toLowerCase()) ||
-        p.codigo.toLowerCase().includes(productoSearch.toLowerCase())
-      )
-    : [];
+  const filteredCompradores = useMemo(() =>
+    compradorSearch
+      ? compradores.filter(c => c.nombre.toLowerCase().includes(compradorSearch.toLowerCase()))
+      : [],
+    [compradores, compradorSearch]
+  );
 
-  const subtotal = detalles.reduce((sum, d) => sum + d.subtotal, 0);
+  const filteredProductos = useMemo(() =>
+    productoSearch
+      ? productos.filter(p => p.activo && p.nombre.toLowerCase().includes(productoSearch.toLowerCase()))
+      : productos.filter(p => p.activo),
+    [productos, productoSearch]
+  );
 
-  const handleAddProducto = (producto: Producto) => {
-    handleAddProductoConCantidad(producto, 1);
-  };
+  const subtotal = useMemo(() =>
+    detalles.reduce((sum, d) => sum + d.subtotal, 0),
+    [detalles]
+  );
 
   const handleAddProductoConCantidad = (producto: Producto, cantidad: number) => {
     const existingIndex = detalles.findIndex(d => d.productoId === producto.id);
-    
+
     if (existingIndex >= 0) {
       const newDetalles = [...detalles];
       const detalle = newDetalles[existingIndex];
@@ -133,6 +94,7 @@ export default function HacerCompras() {
       setDetalles([...detalles, nuevoDetalle]);
     }
     setProductoSearch('');
+    setProductoSugOpen(false);
   };
 
   const handleUpdateCantidad = (index: number, cantidad: number) => {
@@ -164,48 +126,48 @@ export default function HacerCompras() {
     setDetalles(detalles.filter((_, i) => i !== index));
   };
 
-  const handleGuardarCompra = () => {
-    if (detalles.length === 0 || !selectedComprador) return;
+  const handleGuardarCompra = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      if (detalles.length === 0 || !selectedComprador) return;
 
-    const nuevaCompra: Compra = {
-      id: generateId(),
-      fecha: new Date().toISOString(),
-      compradorId: selectedComprador.id,
-      compradorNombre: selectedComprador.nombre,
-      detalles,
-      subtotal,
-      total: subtotal,
-      metodoPago,
-      estado: 'completada',
-      notas,
-    };
+      const nuevaCompra: Omit<Compra, 'id'> = {
+        fecha: new Date().toISOString(),
+        compradorId: selectedComprador.id,
+        compradorNombre: selectedComprador.nombre,
+        detalles,
+        subtotal,
+        total: subtotal,
+        metodoPago,
+        estado: 'completada',
+        notas,
+      };
 
-    const nuevasCompras = [...compras, nuevaCompra];
-    setCompras(nuevasCompras);
-    saveComprasToStorage(nuevasCompras);
+      await crearCompra(nuevaCompra);
+      await refetchCompras();
 
-    const productosActualizados = productos.map(p => {
-      const detalle = detalles.find(d => d.productoId === p.id);
-      if (detalle) {
-        return {
-          ...p,
-          stock: p.stock + detalle.cantidad,
-          precioCompra: detalle.precioUnitario,
-        };
+      for (const detalle of detalles) {
+        const producto = productos.find(p => p.id === detalle.productoId);
+        if (producto) {
+          await actualizarProducto(producto.id, {
+            stock: producto.stock + detalle.cantidad,
+            precioCompra: detalle.precioUnitario,
+          });
+        }
       }
-      return p;
-    });
-    setProductos(productosActualizados);
-    saveProductosToStorage(productosActualizados);
 
-    setDetalles([]);
-    setSelectedComprador(null);
-    setCompradorSearch('');
-    setMetodoPago('efectivo');
-    setNotas('');
-    setSelectionMode(false);
-    setSelectedProductos(new Set());
-    setNuevaCompraOpen(false);
+      setDetalles([]);
+      setSelectedComprador(null);
+      setCompradorSearch('');
+      setMetodoPago('efectivo');
+      setNotas('');
+      setNuevaCompraOpen(false);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   const getMetodoPagoLabel = (metodo: Compra['metodoPago']) => {
@@ -213,11 +175,17 @@ export default function HacerCompras() {
     return labels[metodo];
   };
 
-  const comprasHoy = compras.filter(c => 
-    new Date(c.fecha).toDateString() === new Date().toDateString() && 
-    c.estado === 'completada'
+  const comprasHoy = useMemo(() =>
+    compras.filter(c =>
+      new Date(c.fecha).toDateString() === new Date().toDateString() &&
+      c.estado === 'completada'
+    ),
+    [compras]
   );
-  const totalComprasHoy = comprasHoy.reduce((sum, c) => sum + c.total, 0);
+  const totalComprasHoy = useMemo(() =>
+    comprasHoy.reduce((sum, c) => sum + c.total, 0),
+    [comprasHoy]
+  );
 
   return (
     <div className="space-y-6">
@@ -297,114 +265,96 @@ export default function HacerCompras() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Nueva Compra</DialogTitle>
-            <DialogDescription>Registre una nueva compra</DialogDescription>
+            <DialogDescription>Registre una nueva compra de productos</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Comprador *</Label>
-              {selectedComprador ? (
-                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                  <p className="font-medium">{selectedComprador.nombre}</p>
-                  <Button variant="ghost" size="sm" onClick={() => setSelectedComprador(null)}>Cambiar</Button>
-                </div>
-              ) : (
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <Input placeholder="Buscar comprador..." value={compradorSearch} onChange={(e) => setCompradorSearch(e.target.value)} className="pl-10" />
-                  {filteredCompradores.length > 0 && compradorSearch && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                      {filteredCompradores.map((comprador) => (
-                        <button key={comprador.id} className="w-full px-4 py-2 text-left hover:bg-slate-50" onClick={() => { setSelectedComprador(comprador); setCompradorSearch(''); }}>
-                          <p className="font-medium">{comprador.nombre}</p>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+              <Label htmlFor="comprador">Comprador *</Label>
+              <div className="relative">
+                <Input
+                  id="comprador"
+                  placeholder="Buscar comprador..."
+                  value={compradorSearch}
+                  onChange={(e) => {
+                    setCompradorSearch(e.target.value);
+                    setCompradorSugOpen(true);
+                  }}
+                  onFocus={() => {
+                    setSelectedComprador(null);
+                    setCompradorSugOpen(true);
+                  }}
+                  onClick={() => setCompradorSugOpen(true)}
+                  onBlur={() => setCompradorSugOpen(false)}
+                />
+                {compradorSugOpen && filteredCompradores.length > 0 && (
+                  <div className="absolute z-10 w-full mt-1 max-h-40 overflow-y-auto bg-white border rounded-md shadow-lg">
+                    {filteredCompradores.map(c => (
+                      <button
+                        key={c.id}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setSelectedComprador(c);
+                          setCompradorSearch(c.nombre);
+                          setCompradorSugOpen(false);
+                        }}
+                        className="w-full px-3 py-2 text-left hover:bg-slate-100"
+                      >
+                        {c.nombre}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {selectedComprador && (
+                <p className="text-sm text-green-600">Seleccionado: {selectedComprador.nombre}</p>
               )}
             </div>
 
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>Productos a Comprar</Label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <Input placeholder="Buscar producto..." value={productoSearch} onChange={(e) => setProductoSearch(e.target.value)} className="pl-10 w-48" />
-                </div>
-              </div>
-              <div className="border rounded-lg overflow-hidden max-h-80 overflow-y-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead></TableHead>
-                      <TableHead>Producto</TableHead>
-                      <TableHead className="text-right">Precio</TableHead>
-                      <TableHead className="text-center w-24">Cantidad</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {productos.filter(p => productoSearch === '' || p.nombre.toLowerCase().includes(productoSearch.toLowerCase()) || p.codigo.toLowerCase().includes(productoSearch.toLowerCase())).map((producto) => {
-                      const detalleExistente = detalles.find(d => d.productoId === producto.id);
-                      const cantidadIngresada = detalleExistente?.cantidad || 1;
-                      const isSelected = detalleExistente !== undefined;
-
-                      return (
-                        <TableRow key={producto.id} className={isSelected ? 'bg-blue-50' : ''}>
-                          <TableCell>
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  if (cantidadIngresada > 0) {
-                                    handleAddProductoConCantidad(producto, cantidadIngresada);
-                                  }
-                                } else {
-                                  setDetalles(prev => prev.filter(d => d.productoId !== producto.id));
-                                }
-                              }}
-                              className="w-4 h-4"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <p className="font-medium">{producto.nombre}</p>
-                          </TableCell>
-                          <TableCell className="text-right">{formatCurrency(producto.precioCompra)}</TableCell>
-                          <TableCell className="text-center">
-                            <Input
-                              type="number"
-                              min="1"
-                              value={cantidadIngresada}
-                              onChange={(e) => {
-                                const cantidad = parseInt(e.target.value) || 1;
-                                if (isSelected) {
-                                  setDetalles(prev => prev.map(d =>
-                                    d.productoId === producto.id
-                                      ? { ...d, cantidad, subtotal: cantidad * d.precioUnitario }
-                                      : d
-                                  ));
-                                }
-                              }}
-                              className="w-20 mx-auto text-center"
-                            />
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+              <Label htmlFor="producto">Producto *</Label>
+              <div className="relative">
+                <Input
+                  id="producto"
+                  placeholder="Buscar producto..."
+                  value={productoSearch}
+                  onChange={(e) => {
+                    setProductoSearch(e.target.value);
+                    setProductoSugOpen(true);
+                  }}
+                  onFocus={() => setProductoSugOpen(true)}
+                  onClick={() => setProductoSugOpen(true)}
+                  onBlur={() => setProductoSugOpen(false)}
+                />
+                {productoSugOpen && filteredProductos.length > 0 && (
+                  <div className="absolute z-10 w-full mt-1 max-h-40 overflow-y-auto bg-white border rounded-md shadow-lg">
+                    {filteredProductos.map(p => (
+                      <button
+                        key={p.id}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => handleAddProductoConCantidad(p, 1)}
+                        className="w-full px-3 py-2 text-left hover:bg-slate-100 flex justify-between"
+                      >
+                        <span>{p.nombre} ({formatCurrency(p.precioCompra)})</span>
+                        <Badge variant="secondary">{p.stock} {p.unidad}</Badge>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
-            {detalles.length > 0 && (
-              <div className="border rounded-lg overflow-hidden">
+            <div className="space-y-2">
+              <Label>Detalles de la Compra</Label>
+              {detalles.length === 0 ? (
+                <p className="text-slate-500 text-center py-4">No hay productos agregados</p>
+              ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Producto</TableHead>
+                      <TableHead className="text-right">Cantidad</TableHead>
                       <TableHead className="text-right">P. Unitario</TableHead>
-                      <TableHead className="text-center">Cantidad</TableHead>
                       <TableHead className="text-right">Subtotal</TableHead>
                       <TableHead></TableHead>
                     </TableRow>
@@ -414,14 +364,27 @@ export default function HacerCompras() {
                       <TableRow key={index}>
                         <TableCell>{detalle.productoNombre}</TableCell>
                         <TableCell className="text-right">
-                          <Input type="number" value={detalle.precioUnitario} onChange={(e) => handleUpdatePrecio(index, parseFloat(e.target.value) || 0)} className="w-24 ml-auto text-right" />
+                          <Input
+                            type="number"
+                            min="1"
+                            value={detalle.cantidad}
+                            onChange={(e) => handleUpdateCantidad(index, parseInt(e.target.value) || 0)}
+                            className="w-24"
+                          />
                         </TableCell>
-                        <TableCell className="text-center">
-                          <Input type="number" min="1" value={detalle.cantidad} onChange={(e) => handleUpdateCantidad(index, parseInt(e.target.value) || 1)} className="w-20 mx-auto text-center" />
+                        <TableCell className="text-right">
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={detalle.precioUnitario}
+                            onChange={(e) => handleUpdatePrecio(index, parseFloat(e.target.value) || 0)}
+                            className="w-28"
+                          />
                         </TableCell>
-                        <TableCell className="text-right">{formatCurrency(detalle.subtotal)}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(detalle.subtotal)}</TableCell>
                         <TableCell>
-                          <Button variant="ghost" size="icon" onClick={() => handleRemoveDetalle(index)} className="text-red-500 hover:text-red-700 h-6 w-6">
+                          <Button variant="ghost" size="icon" onClick={() => handleRemoveDetalle(index)} className="text-red-500">
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </TableCell>
@@ -429,23 +392,16 @@ export default function HacerCompras() {
                     ))}
                   </TableBody>
                 </Table>
-              </div>
-            )}
+              )}
+            </div>
 
-            {detalles.length > 0 && (
-              <div className="bg-slate-50 p-4 rounded-lg">
-                <div className="flex justify-between text-lg font-bold">
-                  <span>Total:</span>
-                  <span>{formatCurrency(subtotal)}</span>
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Método de Pago</Label>
+                <Label htmlFor="metodoPago">Método de Pago</Label>
                 <Select value={metodoPago} onValueChange={(v) => setMetodoPago(v as Compra['metodoPago'])}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="efectivo">Efectivo</SelectItem>
                     <SelectItem value="tarjeta">Tarjeta</SelectItem>
@@ -455,87 +411,67 @@ export default function HacerCompras() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Notas</Label>
-                <Input value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Notas..." />
+                <Label htmlFor="notas">Notas</Label>
+                <Input id="notas" value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Observaciones..." />
               </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <p className="text-lg font-bold self-center">Total: {formatCurrency(subtotal)}</p>
+              <Button variant="outline" onClick={() => setNuevaCompraOpen(false)}>Cancelar</Button>
+              <Button onClick={handleGuardarCompra} disabled={detalles.length === 0 || !selectedComprador || saving}>
+                {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Guardar Compra
+              </Button>
             </div>
           </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNuevaCompraOpen(false)}>Cancelar</Button>
-            <Button onClick={handleGuardarCompra} disabled={detalles.length === 0 || !selectedComprador}>
-              <Receipt className="w-4 h-4 mr-2" />
-              Guardar Compra
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!selectedCompra} onOpenChange={() => setSelectedCompra(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Detalle de Compra</DialogTitle>
-            <DialogDescription>
-              Compra del {selectedCompra && formatDate(selectedCompra.fecha)}
-            </DialogDescription>
-          </DialogHeader>
-          {selectedCompra && (
-            <div className="space-y-4">
+      {selectedCompra && (
+        <Dialog open={!!selectedCompra} onOpenChange={() => setSelectedCompra(null)}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Detalle de Compra</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-slate-500">Comprador</p>
-                  <p className="font-medium">{selectedCompra.compradorNombre}</p>
-                </div>
-                <div>
-                  <p className="text-slate-500">Método de Pago</p>
-                  <p className="font-medium capitalize">{getMetodoPagoLabel(selectedCompra.metodoPago)}</p>
-                </div>
-                <div>
-                  <p className="text-slate-500">Total</p>
-                  <p className="font-medium text-lg">{formatCurrency(selectedCompra.total)}</p>
-                </div>
+                <div><p className="text-slate-500">Fecha</p><p>{formatDate(selectedCompra.fecha)}</p></div>
+                <div><p className="text-slate-500">Comprador</p><p>{selectedCompra.compradorNombre}</p></div>
+                <div><p className="text-slate-500">Método</p><p className="capitalize">{getMetodoPagoLabel(selectedCompra.metodoPago)}</p></div>
+                <div><p className="text-slate-500">Estado</p><p>{selectedCompra.estado}</p></div>
               </div>
-
-              {selectedCompra.notas && (
-                <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200">
-                  <p className="text-sm font-medium text-yellow-800">Nota:</p>
-                  <p className="text-sm text-yellow-700">{selectedCompra.notas}</p>
-                </div>
-              )}
-
-              <div className="border rounded-lg overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Producto</TableHead>
-                      <TableHead className="text-right">P. Unitario</TableHead>
-                      <TableHead className="text-center">Cantidad</TableHead>
-                      <TableHead className="text-right">Subtotal</TableHead>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Producto</TableHead>
+                    <TableHead className="text-right">Cantidad</TableHead>
+                    <TableHead className="text-right">P. Unitario</TableHead>
+                    <TableHead className="text-right">Subtotal</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {selectedCompra.detalles.map((detalle, index) => (
+                    <TableRow key={index}>
+                      <TableCell>{detalle.productoNombre}</TableCell>
+                      <TableCell className="text-right">{detalle.cantidad}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(detalle.precioUnitario)}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(detalle.subtotal)}</TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {selectedCompra.detalles.map((detalle, index) => (
-                      <TableRow key={index}>
-                        <TableCell>{detalle.productoNombre}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(detalle.precioUnitario)}</TableCell>
-                        <TableCell className="text-center">{detalle.cantidad}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(detalle.subtotal)}</TableCell>
-                      </TableRow>
-                    ))}
-                    <TableRow>
-                      <TableCell colSpan={3} className="text-right font-medium">Total:</TableCell>
-                      <TableCell className="text-right font-bold">{formatCurrency(selectedCompra.total)}</TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
+                  ))}
+                </TableBody>
+              </Table>
+              <div className="flex justify-end">
+                <p className="text-xl font-bold">Total: {formatCurrency(selectedCompra.total)}</p>
               </div>
+              {selectedCompra.notas && <p className="text-sm text-slate-500">Notas: {selectedCompra.notas}</p>}
             </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSelectedCompra(null)}>Cerrar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button onClick={() => setSelectedCompra(null)}>Cerrar</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Plus, Search, Edit2, Trash2 } from 'lucide-react';
+import { useState, useMemo, useCallback, useRef } from 'react';
+import { Plus, Search, Edit2, Trash2, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
-import { useCompradores, formatDate } from '@/hooks/useStorage';
+import { useCompradores, formatDate } from '@/hooks/supabase/useSupabaseData';
 import type { Comprador } from '@/types';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -22,18 +22,30 @@ const compradorSchema = z.object({
 });
 
 export default function Compradores() {
-  const { compradores, agregarComprador, actualizarComprador, eliminarComprador, buscarCompradores } = useCompradores();
+  const { 
+    data: compradores, 
+    create: agregarComprador, 
+    update: actualizarComprador, 
+    delete: eliminarComprador,
+  } = useCompradores();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingComprador, setEditingComprador] = useState<Comprador | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [compradorToDelete, setCompradorToDelete] = useState<Comprador | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const { control, handleSubmit, reset, formState: { errors } } = useForm<z.infer<typeof compradorSchema>>({
     resolver: zodResolver(compradorSchema),
     defaultValues: { nombre: '' }
   });
+
+  const buscarCompradores = useCallback((query: string) => {
+    const q = query.toLowerCase();
+    return compradores.filter(c => c.activo && c.nombre.toLowerCase().includes(q));
+  }, [compradores]);
 
   const filteredCompradores = useMemo(() => {
     return searchQuery ? buscarCompradores(searchQuery) : compradores;
@@ -50,13 +62,24 @@ export default function Compradores() {
     setDialogOpen(true);
   };
 
-  const handleSave = (data: z.infer<typeof compradorSchema>) => {
-    if (editingComprador) {
-      actualizarComprador(editingComprador.id, data);
-    } else {
-      agregarComprador(data);
+  const handleSave = async (data: z.infer<typeof compradorSchema>) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      if (editingComprador) {
+        await actualizarComprador(editingComprador.id, data);
+      } else {
+        await agregarComprador(data);
+      }
+      setDialogOpen(false);
+    } catch (error) {
+      console.error('Error guardando comprador:', error);
+      alert('Error al guardar el comprador');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
-    setDialogOpen(false);
   };
 
   const handleDelete = (comprador: Comprador) => {
@@ -64,11 +87,16 @@ export default function Compradores() {
     setDeleteDialogOpen(true);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (compradorToDelete) {
-      eliminarComprador(compradorToDelete.id);
-      setDeleteDialogOpen(false);
-      setCompradorToDelete(null);
+      try {
+        await eliminarComprador(compradorToDelete.id);
+        setDeleteDialogOpen(false);
+        setCompradorToDelete(null);
+      } catch (error) {
+        console.error('Error eliminando comprador:', error);
+        alert('Error al eliminar el comprador');
+      }
     }
   };
 
@@ -162,7 +190,7 @@ export default function Compradores() {
                 name="nombre"
                 control={control}
                 render={({ field }) => (
-                  <Input {...field} id="nombre" placeholder="Nombre del comprador" />
+                  <Input {...field} id="nombre" placeholder="Nombre del comprador" disabled={saving} />
                 )}
               />
               {errors.nombre && <p className="text-sm text-red-500">{errors.nombre.message}</p>}
@@ -171,7 +199,8 @@ export default function Compradores() {
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit">
+              <Button type="submit" disabled={saving}>
+                {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {editingComprador ? 'Guardar Cambios' : 'Crear Comprador'}
               </Button>
             </DialogFooter>

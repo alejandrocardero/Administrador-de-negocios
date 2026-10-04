@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
-  CalendarIcon, Edit, Trash, MoreHorizontal, User, DollarSign, FileSpreadsheet, Banknote
+  CalendarIcon, Edit, Trash, MoreHorizontal, User, DollarSign, FileSpreadsheet, Banknote, HandCoins, Loader2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,8 +25,8 @@ import {
   Popover, PopoverContent, PopoverTrigger as PopoverTriggerRoot
 } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
-import { useVentasDiarias, useVendedores, formatCurrency, formatDate } from '@/hooks/useStorage';
-import { useAuth } from '@/hooks/useAuth';
+import { useVentasDiarias, useVendedores, useFiados, formatCurrency, formatDate } from '@/hooks/supabase/useSupabaseData';
+import { useAuth } from '@/contexts/AuthContext';
 import type { VentaDiaria, Vendedor } from '@/types';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -34,6 +34,7 @@ import { es } from 'date-fns/locale';
 import IPVE from '@/components/IPVE';
 import HistorialIPVE from '@/components/HistorialIPVE';
 import ContadorBilletes from '@/components/ContadorBilletes';
+import FiadoDialog from '@/components/FiadoDialog';
 
 interface NuevoRegistro {
   fecha: Date;
@@ -51,6 +52,7 @@ function VentaForm({
   contadorConfirmado,
   onOpenContador,
   onConfirmarSubmit,
+  onOpenFiado,
 }: {
   vendedores: Vendedor[];
   onSubmit: (data: NuevoRegistro) => void;
@@ -59,6 +61,7 @@ function VentaForm({
   contadorConfirmado?: number | null;
   onOpenContador?: () => void;
   onConfirmarSubmit?: (data: NuevoRegistro) => void;
+  onOpenFiado?: () => void;
 }) {
   const [formData, setFormData] = useState<NuevoRegistro>({
     fecha: defaultValues?.fecha || new Date(),
@@ -70,11 +73,12 @@ function VentaForm({
 
   useEffect(() => {
     if (contadorConfirmado && contadorConfirmado > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFormData(prev => ({ ...prev, montoEfectivo: contadorConfirmado }));
     }
   }, [contadorConfirmado]);
 
-  const handleChange = (field: keyof NuevoRegistro, value: any) => {
+  const handleChange = (field: keyof NuevoRegistro, value: string | number | Date) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
@@ -168,7 +172,13 @@ function VentaForm({
         />
       </div>
 
-      <div className="md:col-span-2 flex justify-end">
+      <div className="md:col-span-2 flex justify-end gap-2">
+        {!isEdit && onOpenFiado && (
+          <Button type="button" variant="outline" onClick={onOpenFiado}>
+            <HandCoins className="w-4 h-4 mr-2" />
+            Fiado (A Plazo)
+          </Button>
+        )}
         <Button type="submit">
           {isEdit ? 'Guardar Cambios' : 'Registrar Venta'}
         </Button>
@@ -179,8 +189,21 @@ function VentaForm({
 
 export default function Ventas() {
   const { user } = useAuth();
-  const { ventas, agregarVentaDiaria, actualizarVentaDiaria, eliminarVentaDiaria } = useVentasDiarias();
-  const { vendedores } = useVendedores();
+  const { 
+    data: ventas, 
+    create: agregarVentaDiaria, 
+    update: actualizarVentaDiaria, 
+    delete: eliminarVentaDiaria,
+  } = useVentasDiarias();
+  
+  const { 
+    data: vendedores 
+  } = useVendedores();
+  
+  const { 
+    create: agregarFiado 
+  } = useFiados();
+  
   const [editingVenta, setEditingVenta] = useState<VentaDiaria | null>(null);
   const [deleteVenta, setDeleteVenta] = useState<VentaDiaria | null>(null);
   const [historialIpveOpen, setHistorialIpveOpen] = useState(false);
@@ -188,6 +211,9 @@ export default function Ventas() {
   const [contadorOpen, setContadorOpen] = useState(false);
   const [contadorConfirmado, setContadorConfirmado] = useState<number | null>(null);
   const [confirmVenta, setConfirmVenta] = useState<NuevoRegistro | null>(null);
+  const [fiadoDialogOpen, setFiadoDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const sortedVentas = useMemo(() => {
     return [...ventas].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
@@ -197,37 +223,62 @@ export default function Ventas() {
     setConfirmVenta(data);
   };
 
-  const handleConfirmVenta = () => {
-    if (!confirmVenta) return;
-    const vendedor = vendedores.find(v => v.id === confirmVenta.vendedorId);
-    if (!vendedor) return;
-
-    agregarVentaDiaria({
-      ...confirmVenta,
-      fecha: confirmVenta.fecha.toISOString(),
-      vendedorNombre: vendedor.nombre,
-    });
-    setContadorConfirmado(null);
-    setConfirmVenta(null);
+  const handleOpenFiadoDialog = () => {
+    setFiadoDialogOpen(true);
   };
 
-  const handleEditSubmit = (data: NuevoRegistro) => {
+const handleConfirmVenta = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      if (!confirmVenta) return;
+      const vendedor = vendedores.find(v => v.id === confirmVenta.vendedorId);
+      if (!vendedor) return;
+
+      await agregarVentaDiaria({
+        ...confirmVenta,
+        fecha: confirmVenta.fecha.toISOString(),
+        vendedorNombre: vendedor.nombre,
+      });
+      setContadorConfirmado(null);
+      setConfirmVenta(null);
+    } catch (error) {
+      console.error('Error guardando venta:', error);
+      alert('Error al guardar la venta');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
+
+  const handleEditSubmit = async (data: NuevoRegistro) => {
     if (!editingVenta) return;
     const vendedor = vendedores.find(v => v.id === data.vendedorId);
     if (!vendedor) return;
     
-    actualizarVentaDiaria(editingVenta.id, {
-        ...data,
-        fecha: data.fecha.toISOString(),
-        vendedorNombre: vendedor.nombre,
-    });
-    setEditingVenta(null);
+    try {
+      await actualizarVentaDiaria(editingVenta.id, {
+          ...data,
+          fecha: data.fecha.toISOString(),
+          vendedorNombre: vendedor.nombre,
+      });
+      setEditingVenta(null);
+    } catch (error) {
+      console.error('Error actualizando venta:', error);
+      alert('Error al actualizar la venta');
+    }
   };
-  
-  const handleDelete = () => {
-    if(deleteVenta) {
-      eliminarVentaDiaria(deleteVenta.id);
-      setDeleteVenta(null);
+   
+  const handleDelete = async () => {
+    if (deleteVenta) {
+      try {
+        await eliminarVentaDiaria(deleteVenta.id);
+        setDeleteVenta(null);
+      } catch (error) {
+        console.error('Error eliminando venta:', error);
+        alert('Error al eliminar la venta');
+      }
     }
   }
 
@@ -296,6 +347,7 @@ export default function Ventas() {
             contadorConfirmado={contadorConfirmado}
             onOpenContador={() => setContadorOpen(true)}
             onConfirmarSubmit={handleAddSubmit}
+            onOpenFiado={handleOpenFiadoDialog}
           />
         </CardContent>
       </Card>
@@ -415,10 +467,19 @@ export default function Ventas() {
             )}
             <DialogFooter>
                 <Button variant="outline" onClick={() => setConfirmVenta(null)}>Cancelar</Button>
-                <Button onClick={handleConfirmVenta}>Confirmar</Button>
+                <Button onClick={handleConfirmVenta} disabled={saving}>
+                  {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Confirmar
+                </Button>
             </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <FiadoDialog
+        open={fiadoDialogOpen}
+        onOpenChange={setFiadoDialogOpen}
+        onSave={agregarFiado}
+      />
     </div>
   );
 }

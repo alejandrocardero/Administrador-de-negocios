@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { 
-  Plus, Search, Edit2, Trash2, Wallet
+  Plus, Search, Edit2, Trash2, Wallet, Loader2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, 
   DialogDescription, DialogFooter 
 } from '@/components/ui/dialog';
-import { useGastos, formatCurrency, formatDate } from '@/hooks/useStorage';
+import { useGastos, formatCurrency, formatDate } from '@/hooks/supabase/useSupabaseData';
 import type { Gasto } from '@/types';
 
 const categoriasGasto = [
@@ -29,7 +29,12 @@ const categoriasGasto = [
 ];
 
 export default function Gastos() {
-  const { gastos, agregarGasto, actualizarGasto, eliminarGasto, getGastosMes } = useGastos();
+  const { 
+    data: gastos, 
+    create: agregarGasto, 
+    update: actualizarGasto, 
+    delete: eliminarGasto,
+  } = useGastos();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [categoriaFilter, setCategoriaFilter] = useState<string>('todas');
@@ -37,6 +42,8 @@ export default function Gastos() {
   const [editingGasto, setEditingGasto] = useState<Gasto | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [gastoToDelete, setGastoToDelete] = useState<Gasto | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const [formData, setFormData] = useState({
     fecha: new Date().toISOString().split('T')[0],
@@ -46,6 +53,12 @@ export default function Gastos() {
     metodoPago: 'efectivo' as Gasto['metodoPago'],
     descripcion: '',
   });
+
+  const getGastosMes = () => {
+    const ahora = new Date();
+    const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+    return gastos.filter(g => new Date(g.fecha) >= inicioMes);
+  };
 
   const filteredGastos = gastos.filter((g: Gasto) => {
     const matchesSearch = 
@@ -80,22 +93,33 @@ export default function Gastos() {
     setDialogOpen(true);
   };
 
-  const handleSave = () => {
-    const gastoData = {
-      fecha: new Date(formData.fecha).toISOString(),
-      concepto: formData.concepto,
-      categoria: formData.categoria,
-      monto: parseFloat(formData.monto) || 0,
-      metodoPago: formData.metodoPago,
-      descripcion: formData.descripcion || undefined,
-    };
+  const handleSave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const gastoData = {
+        fecha: new Date(formData.fecha).toISOString(),
+        concepto: formData.concepto,
+        categoria: formData.categoria,
+        monto: parseFloat(formData.monto) || 0,
+        metodoPago: formData.metodoPago,
+        descripcion: formData.descripcion || undefined,
+      };
 
-    if (editingGasto) {
-      actualizarGasto(editingGasto.id, gastoData);
-    } else {
-      agregarGasto(gastoData);
+      if (editingGasto) {
+        await actualizarGasto(editingGasto.id, gastoData);
+      } else {
+        await agregarGasto(gastoData);
+      }
+      setDialogOpen(false);
+    } catch (error) {
+      console.error('Error guardando gasto:', error);
+      alert('Error al guardar el gasto');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
-    setDialogOpen(false);
   };
 
   const handleDelete = (gasto: Gasto) => {
@@ -103,11 +127,16 @@ export default function Gastos() {
     setDeleteDialogOpen(true);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (gastoToDelete) {
-      eliminarGasto(gastoToDelete.id);
-      setDeleteDialogOpen(false);
-      setGastoToDelete(null);
+      try {
+        await eliminarGasto(gastoToDelete.id);
+        setDeleteDialogOpen(false);
+        setGastoToDelete(null);
+      } catch (error) {
+        console.error('Error eliminando gasto:', error);
+        alert('Error al eliminar el gasto');
+      }
     }
   };
 
@@ -363,7 +392,8 @@ export default function Gastos() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleSave}>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               {editingGasto ? 'Guardar Cambios' : 'Registrar Gasto'}
             </Button>
           </DialogFooter>

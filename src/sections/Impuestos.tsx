@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { 
   Plus, Search, Edit2, Calculator, AlertTriangle,
-  CheckCircle, Clock, DollarSign
+  CheckCircle, Clock, DollarSign, Loader2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
 } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useImpuestos, formatCurrency, formatDate } from '@/hooks/useStorage';
+import { useImpuestos, formatCurrency, formatDate } from '@/hooks/supabase/useSupabaseData';
 import type { Impuesto } from '@/types';
 
 const tiposImpuesto = [
@@ -39,6 +39,8 @@ export default function Impuestos() {
   const [pagoDialogOpen, setPagoDialogOpen] = useState(false);
   const [impuestoToPay, setImpuestoToPay] = useState<Impuesto | null>(null);
   const [montoPago, setMontoPago] = useState('');
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const [formData, setFormData] = useState({
     nombre: '',
@@ -82,24 +84,32 @@ export default function Impuestos() {
     setDialogOpen(true);
   };
 
-  const handleSave = () => {
-    const impuestoData = {
-      nombre: formData.nombre,
-      tipo: formData.tipo,
-      periodo: formData.periodo,
-      fechaVencimiento: new Date(formData.fechaVencimiento).toISOString(),
-      monto: parseFloat(formData.monto) || 0,
-      montoPagado: editingImpuesto?.montoPagado || 0,
-      estado: editingImpuesto?.estado || 'pendiente',
-      notas: formData.notas || undefined,
-    };
+  const handleSave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const impuestoData = {
+        nombre: formData.nombre,
+        tipo: formData.tipo,
+        periodo: formData.periodo,
+        fechaVencimiento: new Date(formData.fechaVencimiento).toISOString(),
+        monto: parseFloat(formData.monto) || 0,
+        montoPagado: editingImpuesto?.montoPagado || 0,
+        estado: editingImpuesto?.estado || 'pendiente',
+        notas: formData.notas || undefined,
+      };
 
-    if (editingImpuesto) {
-      actualizarImpuesto(editingImpuesto.id, impuestoData);
-    } else {
-      agregarImpuesto(impuestoData);
+      if (editingImpuesto) {
+        await actualizarImpuesto(editingImpuesto.id, impuestoData);
+      } else {
+        await agregarImpuesto(impuestoData);
+      }
+      setDialogOpen(false);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
-    setDialogOpen(false);
   };
 
   const handleOpenPago = (impuesto: Impuesto) => {
@@ -108,19 +118,27 @@ export default function Impuestos() {
     setPagoDialogOpen(true);
   };
 
-  const handleRegistrarPago = () => {
-    if (impuestoToPay) {
-      const nuevoMonto = parseFloat(montoPago) || 0;
-      const totalPagado = impuestoToPay.montoPagado + nuevoMonto;
-      const nuevoEstado: Impuesto['estado'] = totalPagado >= impuestoToPay.monto ? 'pagado' : 'pendiente';
-      
-      actualizarImpuesto(impuestoToPay.id, {
-        montoPagado: totalPagado,
-        estado: nuevoEstado,
-      });
-      setPagoDialogOpen(false);
-      setImpuestoToPay(null);
-      setMontoPago('');
+  const handleRegistrarPago = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      if (impuestoToPay) {
+        const nuevoMonto = parseFloat(montoPago) || 0;
+        const totalPagado = impuestoToPay.montoPagado + nuevoMonto;
+        const nuevoEstado: Impuesto['estado'] = totalPagado >= impuestoToPay.monto ? 'pagado' : 'pendiente';
+        
+        await actualizarImpuesto(impuestoToPay.id, {
+          montoPagado: totalPagado,
+          estado: nuevoEstado,
+        });
+        setPagoDialogOpen(false);
+        setImpuestoToPay(null);
+        setMontoPago('');
+      }
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -368,7 +386,8 @@ export default function Impuestos() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleSave}>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               {editingImpuesto ? 'Guardar Cambios' : 'Registrar Impuesto'}
             </Button>
           </DialogFooter>
@@ -417,7 +436,8 @@ export default function Impuestos() {
             <Button variant="outline" onClick={() => setPagoDialogOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleRegistrarPago}>
+            <Button onClick={handleRegistrarPago} disabled={saving}>
+              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               <DollarSign className="w-4 h-4 mr-2" />
               Registrar Pago
             </Button>

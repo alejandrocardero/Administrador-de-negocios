@@ -1,15 +1,15 @@
 import { useState } from 'react';
 import { 
   LayoutDashboard, Package, ShoppingCart, Users,
-  Receipt, TrendingUp, Settings, Menu, LogOut
+  Receipt, TrendingUp, Settings, Menu, LogOut, ClipboardCheck, Wallet, HandCoins
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import type { Section } from '@/types';
-import { useAuth } from '@/hooks/useAuth';
-
-import Login from '@/components/Login';
+import { useAuth } from '@/contexts/AuthContext';
+import { useBusiness } from '@/contexts/BusinessContext';
+import { UserAvatar } from '@/components/BusinessSelector';
 
 import Dashboard from '@/sections/Dashboard';
 import Inventario from '@/sections/Inventario';
@@ -25,6 +25,12 @@ import Pedidos from '@/sections/Pedidos';
 import VerCompradores from '@/sections/VerCompradores';
 import AlertaStock from '@/sections/AlertaStock';
 import HacerCompras from '@/sections/HacerCompras';
+import AprobarProductos from '@/sections/AprobarProductos';
+import Salarios from '@/sections/Salarios';
+import Fiados from '@/sections/Fiados';
+import AvisoFiados from '@/components/AvisoFiados';
+
+import { BusinessLanding, OnboardingDialog } from '@/components/auth/BusinessLanding';
 
 interface MenuItem {
   id: string;
@@ -41,8 +47,11 @@ const menuItemsJefe: MenuItem[] = [
   { id: 'compras', label: 'Compras', icon: Receipt },
   { id: 'gastos', label: 'Gastos', icon: Receipt },
   { id: 'impuestos', label: 'Impuestos', icon: Receipt },
+  { id: 'salarios', label: 'Salarios', icon: Wallet },
   { id: 'reportes', label: 'Reportes', icon: TrendingUp },
   { id: 'configuracion', label: 'Configuración', icon: Settings },
+  { id: 'aprobarProductos', label: 'Nuevos Productos', icon: ClipboardCheck },
+  { id: 'fiados', label: 'Fiados', icon: HandCoins },
 ];
 
 const menuItemsAdmin: MenuItem[] = [
@@ -50,17 +59,21 @@ const menuItemsAdmin: MenuItem[] = [
   { id: 'vendedores', label: 'Vendedores', icon: Users },
   { id: 'compradores', label: 'Compradores', icon: Users },
   { id: 'pedidos', label: 'Pedidos', icon: Package },
+  { id: 'aprobarProductos', label: 'Nuevos Productos', icon: ClipboardCheck },
+  { id: 'fiados', label: 'Fiados', icon: HandCoins },
 ];
 
 const menuItemsVendedor: MenuItem[] = [
   { id: 'ventas', label: 'Ventas', icon: ShoppingCart },
   { id: 'pedidos', label: 'Pedidos', icon: Package },
+  { id: 'fiados', label: 'Fiados', icon: HandCoins },
 ];
 
 const menuItemsComprador: MenuItem[] = [
   { id: 'compradores', label: 'Compradores', icon: Users },
   { id: 'compras', label: 'Realizar Compras', icon: Receipt },
   { id: 'alertaStock', label: 'Alerta Stock', icon: Package },
+  { id: 'fiados', label: 'Fiados', icon: HandCoins },
 ];
 
 function Sidebar({ 
@@ -218,12 +231,10 @@ function MobileSidebar({
 function Header({ 
   title, 
   onMenuClick,
-  userName,
   onLogout
 }: { 
   title: string; 
   onMenuClick: () => void;
-  userName: string;
   onLogout: () => void;
 }) {
   return (
@@ -243,24 +254,30 @@ function Header({
             day: 'numeric' 
           })}</span>
         </div>
-        <div className="flex items-center gap-1 sm:gap-2">
-          <span className="text-sm text-slate-600 hidden sm:block lg:hidden xl:block truncate max-w-[80px]">{userName}</span>
-          <span className="text-sm text-slate-600 hidden xl:block">{userName}</span>
-          <Button variant="ghost" size="icon" onClick={onLogout} title="Cerrar sesión" className="h-8 w-8 sm:h-9 sm:w-9">
-            <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
-          </Button>
-        </div>
+        <UserAvatar />
+        <Button variant="ghost" size="icon" onClick={onLogout} title="Cerrar sesión" className="h-8 w-8 sm:h-9 sm:w-9">
+          <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
+        </Button>
       </div>
     </header>
   );
 }
 
 export default function App() {
-  const { isAuthenticated, user, loading, logout } = useAuth();
+  const { user, loading: authLoading, logout } = useAuth();
+  const { loading: bizLoading } = useBusiness();
   const [activeSection, setActiveSection] = useState<Section>({ id: 'dashboard' });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [dataVersion, setDataVersion] = useState(0);
 
-  if (loading) {
+  const bumpDataVersion = () => {
+    setDataVersion(v => v + 1);
+  };
+
+  const [showOnboardingDialog, setShowOnboardingDialog] = useState(false);
+
+  // Si hay auth loading -> mostrar loading
+  if (authLoading || bizLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
@@ -268,8 +285,14 @@ export default function App() {
     );
   }
 
-  if (!isAuthenticated || !user) {
-    return <Login />;
+  // Si no hay usuario logueado -> mostrar BusinessLanding (selector de negocios o registro)
+  if (!user) {
+    return (
+      <>
+        <BusinessLanding onOpenOnboarding={() => setShowOnboardingDialog(true)} />
+        <OnboardingDialog open={showOnboardingDialog} onOpenChange={setShowOnboardingDialog} />
+      </>
+    );
   }
 
   const menuItems = user.role === 'vendedor' ? menuItemsVendedor : 
@@ -289,7 +312,7 @@ export default function App() {
       case 'ventas':
         return <Ventas />;
       case 'vendedores':
-        return user.role === 'jefe' ? <Vendedores /> : null;
+        return (user.role === 'jefe' || user.role === 'admin') ? <Vendedores /> : null;
       case 'compradores':
         return user.role === 'comprador' ? <VerCompradores /> : <Compradores />;
       case 'pedidos':
@@ -306,6 +329,12 @@ export default function App() {
         return user.role === 'jefe' ? <Configuracion /> : null;
       case 'alertaStock':
         return user.role === 'comprador' ? <AlertaStock /> : null;
+      case 'salarios':
+        return user.role === 'jefe' ? <Salarios /> : null;
+      case 'aprobarProductos':
+        return (user.role === 'admin' || user.role === 'jefe') ? <AprobarProductos /> : null;
+      case 'fiados':
+        return <Fiados />;
       default:
         return <Ventas />;
     }
@@ -344,14 +373,15 @@ export default function App() {
         <Header 
           title={activeItem?.label || 'Ventas'} 
           onMenuClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          userName={user.nombre}
           onLogout={logout}
         />
 
-        <main className="flex-1 overflow-auto p-4 lg:p-6">
+        <main key={dataVersion} className="flex-1 overflow-auto p-4 lg:p-6">
           {renderSection()}
         </main>
       </div>
+
+      <AvisoFiados onCobrado={bumpDataVersion} />
     </div>
   );
 }

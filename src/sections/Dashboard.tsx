@@ -12,7 +12,7 @@ import {
   useMovimientosCaja,
   useImpuestos,
   formatCurrency 
-} from '@/hooks/useStorage';
+} from '@/hooks/supabase/useSupabaseData';
 import type { Impuesto, Section, Producto } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -121,12 +121,12 @@ export default function Dashboard({
 }: { 
   onSectionChange: (section: Section) => void 
 }) {
-  const { ventas } = useVentasDiarias();
-  const { compras } = useCompras();
-  const { gastos } = useGastos();
-  const { productos } = useProductos();
-  const { movimientos } = useMovimientosCaja();
-  const { impuestos } = useImpuestos();
+  const { data: ventas = [] } = useVentasDiarias();
+  const { data: compras = [] } = useCompras();
+  const { data: gastos = [] } = useGastos();
+  const { data: productos = [] } = useProductos();
+  const { data: movimientos = [] } = useMovimientosCaja();
+  const { data: impuestos = [] } = useImpuestos();
 
   const hoy = new Date();
   const hoyISO = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;

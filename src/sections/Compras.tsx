@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { 
-  Plus, Search, Trash2, Receipt, Calendar, Eye
+  Plus, Search, Trash2, Receipt, Calendar, Eye, Loader2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,13 +18,41 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { 
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
 } from '@/components/ui/table';
-import { useCompras, useCompradores, useProductos, formatCurrency, formatDate } from '@/hooks/useStorage';
+import { useCompras, useCompradores, useProductos, formatCurrency, formatDate } from '@/hooks/supabase/useSupabaseData';
 import type { Compra, DetalleCompra, Comprador, Producto } from '@/types';
 
 export default function Compras() {
-  const { compras, agregarCompra, cancelarCompra } = useCompras();
-  const { buscarCompradores } = useCompradores();
-  const { buscarProductos, getProductoById, actualizarProducto } = useProductos();
+  const { 
+    data: compras, 
+    create: agregarCompra, 
+    update: cancelarCompra 
+  } = useCompras();
+  
+  const { 
+    data: compradores 
+  } = useCompradores();
+  
+  const { 
+    data: productos, 
+    getById: getProductoById,
+    update: actualizarProducto
+  } = useProductos();
+
+  const buscarCompradores = (query: string) => {
+    const q = query.toLowerCase();
+    return compradores.filter(c => c.activo && c.nombre.toLowerCase().includes(q));
+  };
+
+  const buscarProductos = (query: string) => {
+    const q = query.toLowerCase();
+    return productos.filter(p => 
+      p.activo && (
+        p.nombre.toLowerCase().includes(q) ||
+        p.codigo.toLowerCase().includes(q) ||
+        (p.descripcion || '').toLowerCase().includes(q)
+      )
+    );
+  };
 
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -38,6 +66,8 @@ export default function Compras() {
   const [notas, setNotas] = useState('');
   const [updateInventory, setUpdateInventory] = useState(true);
   const [selectedCompra, setSelectedCompra] = useState<Compra | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const filteredCompras = searchQuery
     ? compras.filter((c: Compra) => 
@@ -122,43 +152,51 @@ export default function Compras() {
     setDetalles(detalles.filter((_, i) => i !== index));
   };
 
-  const handleGuardarCompra = () => {
-    if (detalles.length === 0 || !selectedComprador) return;
+  const handleGuardarCompra = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      if (detalles.length === 0 || !selectedComprador) return;
 
-    const compra: Omit<Compra, 'id'> = {
-      fecha: new Date().toISOString(),
-      compradorId: selectedComprador.id,
-      compradorNombre: selectedComprador.nombre,
-      detalles,
-      subtotal,
-      total,
-      metodoPago,
-      estado: 'completada',
-      notas,
-    };
+      const compra: Omit<Compra, 'id'> = {
+        fecha: new Date().toISOString(),
+        compradorId: selectedComprador.id,
+        compradorNombre: selectedComprador.nombre,
+        detalles,
+        subtotal,
+        total,
+        metodoPago,
+        estado: 'completada',
+        notas,
+      };
 
-    agregarCompra(compra);
+      await agregarCompra(compra);
     
-    if (updateInventory) {
-      detalles.forEach((detalle: DetalleCompra) => {
-        const producto = getProductoById(detalle.productoId);
-        if (producto) {
-          actualizarProducto(producto.id, {
-            stock: producto.stock + detalle.cantidad,
-            precioCompra: detalle.precioUnitario,
-          });
+      if (updateInventory) {
+        for (const detalle of detalles) {
+          const producto = getProductoById(detalle.productoId);
+          if (producto) {
+            await actualizarProducto(producto.id, {
+              stock: producto.stock + detalle.cantidad,
+              precioCompra: detalle.precioUnitario,
+            });
+          }
         }
-      });
-    }
+      }
     
-    // Resetear formulario
-    setDetalles([]);
-    setSelectedComprador(null);
-    setCompradorSearch('');
-    setMetodoPago('efectivo');
-    setNotas('');
-    setUpdateInventory(true);
-    setNuevaCompraOpen(false);
+      // Resetear formulario
+      setDetalles([]);
+      setSelectedComprador(null);
+      setCompradorSearch('');
+      setMetodoPago('efectivo');
+      setNotas('');
+      setUpdateInventory(true);
+      setNuevaCompraOpen(false);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   const getEstadoBadge = (estado: Compra['estado']) => {
@@ -296,7 +334,7 @@ export default function Compras() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => cancelarCompra(compra.id)}
+                              onClick={() => cancelarCompra(compra.id, { estado: 'cancelada' })}
                               className="text-red-500 hover:text-red-700"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -508,8 +546,9 @@ export default function Compras() {
             </Button>
             <Button 
               onClick={handleGuardarCompra}
-              disabled={detalles.length === 0 || !selectedComprador}
+              disabled={detalles.length === 0 || !selectedComprador || saving}
             >
+              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               <Receipt className="w-4 h-4 mr-2" />
               Guardar Compra
             </Button>

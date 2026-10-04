@@ -7,7 +7,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
 import { Label } from '@/components/ui/label';
-import { useVendedores, useIPVE } from '@/hooks/useStorage';
+import { useVendedores, useRegistrosIPVE } from '@/hooks/supabase/useSupabaseData';
 
 interface HistorialIPVEProps {
   open: boolean;
@@ -16,7 +16,7 @@ interface HistorialIPVEProps {
 
 export default function HistorialIPVE({ open, onOpenChange }: HistorialIPVEProps) {
   const { vendedores } = useVendedores();
-  const { registros } = useIPVE();
+  const { data: registros } = useRegistrosIPVE();
   
   const [vendedorId, setVendedorId] = useState<string>('');
   const [selectedFecha, setSelectedFecha] = useState<string>('');

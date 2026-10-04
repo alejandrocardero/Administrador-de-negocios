@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import type { 
   Producto, Vendedor, Comprador, VentaDiaria, Compra, Gasto, 
   Impuesto, ConfiguracionNegocio,
-  MovimientoCaja, RegistroIPVE, Pedido
+  MovimientoCaja, RegistroIPVE, Pedido,
+  SolicitudProductoNuevo, SalarioFijo, Fiado
 } from '@/types';
 
 export function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((prev: T) => T)) => void] {
@@ -78,6 +79,7 @@ export function useProductos() {
     const nuevo: Producto = {
       ...producto,
       id: generateId(),
+      codigo: producto.codigo || `PRD-${Date.now().toString(36).toUpperCase()}`,
       fechaRegistro: new Date().toISOString(),
     };
     setProductos(prev => [...prev, nuevo]);
@@ -686,5 +688,152 @@ export function usePedidos() {
     actualizarPedido,
     eliminarPedido,
     getPedidosPendientes,
+  };
+}
+
+// Hook para solicitudes de productos nuevos
+export function useSolicitudesProductoNuevo() {
+  const [solicitudes, setSolicitudes] = useLocalStorage<SolicitudProductoNuevo[]>('solicitudesProductoNuevo', []);
+
+  const agregarSolicitud = (solicitud: Omit<SolicitudProductoNuevo, 'id' | 'fecha' | 'estado'>) => {
+    const nueva: SolicitudProductoNuevo = {
+      ...solicitud,
+      id: generateId(),
+      fecha: new Date().toISOString(),
+      estado: 'pendiente',
+    };
+    setSolicitudes(prev => [...prev, nueva]);
+    return nueva;
+  };
+
+  const aprobarSolicitud = (id: string, precioVenta: number, stockMinimo: number, productoId: string, comentario?: string) => {
+    setSolicitudes(prev => prev.map(s => 
+      s.id === id 
+        ? { ...s, estado: 'aprobada', precioVenta, stockMinimo, productoId, comentarioAdmin: comentario } 
+        : s
+    ));
+  };
+
+  const rechazarSolicitud = (id: string, comentario?: string) => {
+    setSolicitudes(prev => prev.map(s => 
+      s.id === id 
+        ? { ...s, estado: 'rechazada', comentarioAdmin: comentario } 
+        : s
+    ));
+  };
+
+  const getSolicitudesPendientes = () => solicitudes.filter(s => s.estado === 'pendiente');
+
+  return {
+    solicitudes,
+    agregarSolicitud,
+    aprobarSolicitud,
+    rechazarSolicitud,
+    getSolicitudesPendientes,
+  };
+}
+
+// Hook para salarios fijos (admin, comprador, jefe)
+export function useSalariosFijos() {
+  const [salariosFijos, setSalariosFijos] = useLocalStorage<SalarioFijo[]>('salariosFijos', []);
+
+  const rolesBase: { rol: import('@/types').UserRole; nombre: string }[] = [
+    { rol: 'admin', nombre: 'Administrador' },
+    { rol: 'comprador', nombre: 'Comprador' },
+    { rol: 'vendedor', nombre: 'Vendedor' },
+    { rol: 'jefe', nombre: 'Jefe Principal' },
+  ];
+
+  const salariosCompletos = useMemo(() => {
+    const map = new Map(salariosFijos.map(s => [s.rol, s]));
+    return rolesBase.map(r => map.get(r.rol) ?? { id: '', rol: r.rol, nombre: r.nombre, montoSemanal: 0 });
+  }, [salariosFijos, rolesBase]);
+
+  const upsertSalario = (rol: import('@/types').UserRole, montoSemanal: number) => {
+    setSalariosFijos(prev => {
+      const existente = prev.find(s => s.rol === rol);
+      if (existente) {
+        return prev.map(s => s.rol === rol ? { ...s, montoSemanal } : s);
+      }
+      return [...prev, { id: generateId(), rol, nombre: rolesBase.find(r => r.rol === rol)?.nombre || rol, montoSemanal }];
+    });
+  };
+
+  return { salariosFijos: salariosCompletos, upsertSalario };
+}
+
+// Hook para fiados (ventas a plazo / crédito)
+export function useFiados() {
+  const [fiados, setFiados] = useLocalStorage<Fiado[]>('fiados', []);
+
+  const agregarFiado = (fiado: Omit<Fiado, 'id' | 'estado'>) => {
+    const nuevo: Fiado = {
+      ...fiado,
+      id: generateId(),
+      estado: 'pendiente',
+    };
+    setFiados(prev => [...prev, nuevo]);
+    return nuevo;
+  };
+
+  const actualizarFiado = (id: string, datos: Partial<Fiado>) => {
+    setFiados(prev => prev.map(f => f.id === id ? { ...f, ...datos } : f));
+  };
+
+  const eliminarFiado = (id: string) => {
+    setFiados(prev => prev.filter(f => f.id !== id));
+  };
+
+  const getPendientes = () => fiados.filter(f => f.estado === 'pendiente');
+
+  const getCobrados = () => fiados.filter(f => f.estado === 'cobrado');
+
+  const getPorVendedor = (vendedorId: string) => fiados.filter(f => f.vendedorId === vendedorId);
+
+  const cobrarFiado = (id: string) => {
+    const fiado = fiados.find(f => f.id === id);
+    if (!fiado || fiado.estado === 'cobrado') return;
+
+    // 1. Marcar fiado como cobrado
+    setFiados(prev => prev.map(f => f.id === id ? { ...f, estado: 'cobrado' as const, fechaCobro: new Date().toISOString() } : f));
+
+    // 2. Crear VentaDiaria de hoy con el monto cobrado (montoEfectivo)
+    const ventaCobro: Omit<VentaDiaria, 'id' | 'totalVendido' | 'salarioCalculado'> = {
+      fecha: new Date().toISOString(),
+      vendedorId: fiado.vendedorId,
+      vendedorNombre: fiado.vendedorNombre,
+      montoEfectivo: fiado.monto,
+      montoTransferencia: 0,
+      notas: `Cobro fiado - ${fiado.clienteNombre}${fiado.descripcion ? ` (${fiado.descripcion})` : ''}`,
+    };
+    const totalVenta = ventaCobro.montoEfectivo + ventaCobro.montoTransferencia;
+    const salarioCalculado = totalVenta > 15000 ? Math.round((totalVenta - 15000) * 0.02 + 200) : 200;
+    const nuevaVenta: VentaDiaria = {
+      ...ventaCobro,
+      id: generateId(),
+      totalVendido: totalVenta,
+      salarioCalculado,
+    };
+    
+    // Escribir directamente a localStorage para 'ventasDiarias'
+    try {
+      const existentes = JSON.parse(window.localStorage.getItem('ventasDiarias') || '[]');
+      existentes.push(nuevaVenta);
+      window.localStorage.setItem('ventasDiarias', JSON.stringify(existentes));
+      window.dispatchEvent(new CustomEvent('ls:ventasDiarias'));
+    } catch (e) {
+      console.error('Error guardando venta de cobro:', e);
+    }
+  };
+
+  return {
+    fiados,
+    agregarFiado,
+    actualizarFiado,
+    eliminarFiado,
+    getPendientes,
+    getCobrados,
+    getPorVendedor,
+    cobrarFiado,
   };
 }

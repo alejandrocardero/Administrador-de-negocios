@@ -7,3 +7,7 @@ dist/
 electron-builder.yml
 release/
 dist-electron/
+scratch/
+.omo/
+tsc-errors.txt
+eslint-errors.txt

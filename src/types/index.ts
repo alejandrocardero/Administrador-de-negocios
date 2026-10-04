@@ -20,7 +20,60 @@ export type Section =
   | { id: 'configuracion', params?: undefined }
   | { id: 'pedidos', params?: undefined }
   | { id: 'alertaStock', params?: undefined }
+  | { id: 'aprobarProductos', params?: undefined }
+  | { id: 'salarios', params?: undefined }
+  | { id: 'fiados', params?: undefined }
 ;
+
+// Multi-tenant types
+export interface Business {
+  id: string;
+  nombre: string;
+  slug: string;
+  nit?: string;
+  direccion?: string;
+  telefono?: string;
+  email?: string;
+  regimen: 'simplificado' | 'comun';
+  tarifa_iva: number;
+  moneda: string;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Membership {
+  id: string;
+  user_id: string | null;
+  business_id: string;
+  role: UserRole;
+  nombre: string;
+  username: string;
+  password_hash: string | null;
+  is_virtual: boolean;
+  created_at: string;
+}
+
+export type UserRole = 'jefe' | 'vendedor' | 'admin' | 'comprador';
+
+export interface User {
+  role: UserRole;
+  nombre: string;
+}
+
+export interface AuthUser {
+  id: string;
+  email?: string;
+  role: UserRole;
+  nombre: string;
+  username?: string;
+  business_id: string;
+  business_nombre: string;
+  business_slug: string;
+  is_virtual: boolean;
+  is_owner: boolean;
+  membership_id: string;
+}
 
 export type CategoriaProducto = 'aseo' | 'comida' | 'bebidas' | 'cerveza' | 'otros';
 
@@ -58,6 +111,7 @@ export interface Producto {
   categoria: CategoriaProducto;
   precioCompra: number;
   precioVenta: number;
+  porcentajeGanancia: number;
   stock: number;
   stockMinimo: number;
   unidad: string;
@@ -172,4 +226,68 @@ export interface Pedido {
   cantidadEntregada?: number;
   estado: 'pendiente' | 'aprobado' | 'entregado' | 'cancelado';
   notas?: string;
+}
+
+export interface SolicitudProductoNuevo {
+  id: string;
+  fecha: string;
+  compradorId: string;
+  compradorNombre: string;
+  nombreProducto: string;
+  precioCompra: number;
+  cantidad: number;
+  estado: 'pendiente' | 'aprobada' | 'rechazada';
+  notas?: string;
+  precioVenta?: number;
+  stockMinimo?: number;
+  productoId?: string;
+  comentarioAdmin?: string;
+}
+
+export interface SalarioFijo {
+  id: string;
+  rol: UserRole;
+  nombre: string;
+  montoSemanal: number;
+}
+
+export interface Fiado {
+  id: string;
+  fecha: string; // ISO - cuándo se fió
+  clienteNombre: string;
+  vendedorId: string;
+  vendedorNombre: string;
+  monto: number;
+  descripcion?: string; // productos que se llevó
+  notas?: string;
+  estado: 'pendiente' | 'cobrado';
+  fechaCobro?: string; // ISO - al cobrar
+}
+
+export interface ProductoConRotacion extends Producto {
+  totalVendido: number;
+  vendidoSemana: number;
+  vendidoMes: number;
+  gananciaPorUnidad: number;
+  gananciaSemanal: number;
+  gananciaMensual: number;
+  rotacion: number;
+  diasDesdeRegistro: number;
+}
+
+export interface ProductRotationStats {
+  productoId: string;
+  productoNombre: string;
+  productoCodigo: string;
+  totalVendido: number;
+  vendidoSemana: number;
+  vendidoMes: number;
+  precioVenta: number;
+  precioCompra: number;
+  gananciaPorUnidad: number;
+  gananciaSemanal: number;
+  gananciaMensual: number;
+  rotacion: number;
+  diasDesdeRegistro: number;
+  fechaRegistro: string;
 }

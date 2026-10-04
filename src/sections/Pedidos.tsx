@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { CheckCircle, XCircle, Truck, Package, Send, FileCheck, ShoppingCart, Search } from 'lucide-react';
+import { useState, useMemo, useRef } from 'react';
+import { CheckCircle, XCircle, Truck, Package, Send, FileCheck, ShoppingCart, Search, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -15,21 +15,21 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { usePedidos, useProductos, useIPVE, useVendedores, formatCurrency } from '@/hooks/useStorage';
+import { usePedidos, useProductos, useRegistrosIPVE, useVendedores, formatCurrency } from '@/hooks/supabase/useSupabaseData';
 import type { Pedido } from '@/types';
-import type { User } from '@/hooks/useAuth';
+import type { AuthUser } from '@/contexts/AuthContext';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 interface PedidosProps {
-  user?: User;
+  user?: AuthUser;
 }
 
 export default function Pedidos({ user }: PedidosProps) {
   const isAdmin = user?.role === 'admin';
   const { pedidos, agregarPedido, actualizarPedido } = usePedidos();
   const { productos, reducirStock } = useProductos();
-  const { agregarEntrada } = useIPVE();
+  const { agregarEntrada } = useRegistrosIPVE();
   const { vendedores, getVendedorByNombre } = useVendedores();
 
   const hoyLocal = new Date();
@@ -48,6 +48,8 @@ export default function Pedidos({ user }: PedidosProps) {
   const [cantidadRecepcion, setCantidadRecepcion] = useState<number>(0);
   const [seleccionarVendedorOpen, setSeleccionarVendedorOpen] = useState(false);
   const [vendedorIdTemporal, setVendedorIdTemporal] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const misPedidos = useMemo(() => {
     if (!user) return [];
@@ -87,65 +89,81 @@ export default function Pedidos({ user }: PedidosProps) {
       .filter(p => p.estado !== 'pendiente');
   }, [pedidos]);
 
-  const handleCrearPedido = () => {
-    if (!selectedProducto || cantidad < 1 || !user) return;
+  const handleCrearPedido = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      if (!selectedProducto || cantidad < 1 || !user) return;
     
-    const producto = productos.find(p => p.id === selectedProducto);
-    if (!producto) return;
+      const producto = productos.find(p => p.id === selectedProducto);
+      if (!producto) return;
 
-    const vendedor = getVendedorByNombre(user.nombre);
-    let vendedorIdReal: string;
+      const vendedor = getVendedorByNombre(user.nombre);
+      let vendedorIdReal: string;
     
-    if (vendedor) {
-      vendedorIdReal = vendedor.id;
-    } else {
-      if (!vendedorIdTemporal) {
-        setSeleccionarVendedorOpen(true);
-        return;
+      if (vendedor) {
+        vendedorIdReal = vendedor.id;
+      } else {
+        if (!vendedorIdTemporal) {
+          setSeleccionarVendedorOpen(true);
+          return;
+        }
+        vendedorIdReal = vendedorIdTemporal;
       }
-      vendedorIdReal = vendedorIdTemporal;
+
+      await agregarPedido({
+        vendedorId: vendedorIdReal,
+        vendedorNombre: user.nombre,
+        productoId: producto.id,
+        productoNombre: producto.nombre,
+        cantidad,
+        notas,
+      });
+
+      setNewPedidoOpen(false);
+      setSelectedProducto('');
+      setCantidad(1);
+      setNotas('');
+      setVendedorIdTemporal('');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
-
-    agregarPedido({
-      vendedorId: vendedorIdReal,
-      vendedorNombre: user.nombre,
-      productoId: producto.id,
-      productoNombre: producto.nombre,
-      cantidad,
-      notas,
-    });
-
-    setNewPedidoOpen(false);
-    setSelectedProducto('');
-    setCantidad(1);
-    setNotas('');
-    setVendedorIdTemporal('');
   };
 
-  const handleConfirmarVendedorTemporal = () => {
-    if (!vendedorIdTemporal || !selectedProducto || !user) {
-      setSeleccionarVendedorOpen(false);
-      return;
-    }
+  const handleConfirmarVendedorTemporal = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      if (!vendedorIdTemporal || !selectedProducto || !user) {
+        setSeleccionarVendedorOpen(false);
+        return;
+      }
     
-    const producto = productos.find(p => p.id === selectedProducto);
-    if (!producto) return;
+      const producto = productos.find(p => p.id === selectedProducto);
+      if (!producto) return;
 
-    agregarPedido({
-      vendedorId: vendedorIdTemporal,
-      vendedorNombre: user.nombre,
-      productoId: producto.id,
-      productoNombre: producto.nombre,
-      cantidad,
-      notas,
-    });
+      await agregarPedido({
+        vendedorId: vendedorIdTemporal,
+        vendedorNombre: user.nombre,
+        productoId: producto.id,
+        productoNombre: producto.nombre,
+        cantidad,
+        notas,
+      });
 
-    setSeleccionarVendedorOpen(false);
-    setNewPedidoOpen(false);
-    setSelectedProducto('');
-    setCantidad(1);
-    setNotas('');
-    setVendedorIdTemporal('');
+      setSeleccionarVendedorOpen(false);
+      setNewPedidoOpen(false);
+      setSelectedProducto('');
+      setCantidad(1);
+      setNotas('');
+      setVendedorIdTemporal('');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   const handleAceptarPedido = (pedido: Pedido) => {
@@ -181,43 +199,51 @@ export default function Pedidos({ user }: PedidosProps) {
     setRecepcionOpen(true);
   };
 
-  const handleConfirmarRecepcion = () => {
-    if (!selectedPedido || !user) return;
+  const handleConfirmarRecepcion = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      if (!selectedPedido || !user) return;
 
-    let targetVendedorId: string;
-    let targetVendedorNombre: string;
+      let targetVendedorId: string;
+      let targetVendedorNombre: string;
 
-    if (isAdmin && vendedorIdRecepcion) {
-      const vendor = vendedores.find(v => v.id === vendedorIdRecepcion);
-      targetVendedorId = vendedorIdRecepcion;
-      targetVendedorNombre = vendor?.nombre || '';
-    } else {
-      const vendor = getVendedorByNombre(user.nombre);
-      targetVendedorId = vendor?.id || selectedPedido.vendedorId;
-      targetVendedorNombre = vendor?.nombre || selectedPedido.vendedorNombre;
+      if (isAdmin && vendedorIdRecepcion) {
+        const vendor = vendedores.find(v => v.id === vendedorIdRecepcion);
+        targetVendedorId = vendedorIdRecepcion;
+        targetVendedorNombre = vendor?.nombre || '';
+      } else {
+        const vendor = getVendedorByNombre(user.nombre);
+        targetVendedorId = vendor?.id || selectedPedido.vendedorId;
+        targetVendedorNombre = vendor?.nombre || selectedPedido.vendedorNombre;
+      }
+
+      console.log('CONFIRMando recepcion:', { targetVendedorId, targetVendedorNombre, today });
+      console.log('selectedPedido:', selectedPedido);
+      console.log('cantidadRecepcion:', cantidadRecepcion);
+    
+      if (!targetVendedorId) return;
+    
+      const producto = productos.find(p => p.id === selectedPedido.productoId);
+      const precioVenta = producto?.precioVenta || 0;
+      console.log('producto:', producto);
+
+      await agregarEntrada(today, targetVendedorId, selectedPedido.productoId, selectedPedido.productoNombre, cantidadRecepcion, precioVenta, targetVendedorNombre);
+      console.log('LLAMADO agregarEntrada');
+    
+      await actualizarPedido(selectedPedido.id, { estado: 'entregado' });
+
+      setRecepcionOpen(false);
+      setSelectedPedido(null);
+      if (isAdmin) {
+        setVendedorIdRecepcion('');
+      }
+      setCantidadRecepcion(0);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
-
-    console.log('CONFIRMando recepcion:', { targetVendedorId, targetVendedorNombre, today });
-    console.log('selectedPedido:', selectedPedido);
-    console.log('cantidadRecepcion:', cantidadRecepcion);
-    
-    if (!targetVendedorId) return;
-    
-    const producto = productos.find(p => p.id === selectedPedido.productoId);
-    const precioVenta = producto?.precioVenta || 0;
-    console.log('producto:', producto);
-
-    agregarEntrada(today, targetVendedorId, selectedPedido.productoId, selectedPedido.productoNombre, cantidadRecepcion, precioVenta, targetVendedorNombre);
-    console.log('LLAMADO agregarEntrada');
-    
-    actualizarPedido(selectedPedido.id, { estado: 'entregado' });
-
-    setRecepcionOpen(false);
-    setSelectedPedido(null);
-    if (isAdmin) {
-      setVendedorIdRecepcion('');
-    }
-    setCantidadRecepcion(0);
   };
 
   if (!isAdmin) {
@@ -473,7 +499,10 @@ export default function Pedidos({ user }: PedidosProps) {
                 setNewPedidoOpen(false);
                 setSelectedProducto('');
               }}>Cancelar</Button>
-              <Button onClick={handleCrearPedido}>Enviar Pedido</Button>
+              <Button onClick={handleCrearPedido} disabled={saving}>
+                {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Enviar Pedido
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -505,7 +534,8 @@ export default function Pedidos({ user }: PedidosProps) {
               <Button variant="outline" onClick={() => {
                 setSeleccionarVendedorOpen(false);
               }}>Cancelar</Button>
-              <Button onClick={handleConfirmarVendedorTemporal} disabled={!vendedorIdTemporal}>
+              <Button onClick={handleConfirmarVendedorTemporal} disabled={!vendedorIdTemporal || saving}>
+                {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 Confirmar
               </Button>
             </DialogFooter>
@@ -541,7 +571,10 @@ export default function Pedidos({ user }: PedidosProps) {
             )}
             <DialogFooter>
               <Button variant="outline" onClick={() => setRecepcionOpen(false)}>Cancelar</Button>
-              <Button onClick={handleConfirmarRecepcion}>Confirmar Recepción</Button>
+              <Button onClick={handleConfirmarRecepcion} disabled={saving}>
+                {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Confirmar Recepción
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -748,7 +781,10 @@ export default function Pedidos({ user }: PedidosProps) {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setRecepcionOpen(false)}>Cancelar</Button>
-            <Button onClick={handleConfirmarRecepcion}>Confirmar Recepción</Button>
+            <Button onClick={handleConfirmarRecepcion} disabled={saving}>
+              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Confirmar Recepción
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

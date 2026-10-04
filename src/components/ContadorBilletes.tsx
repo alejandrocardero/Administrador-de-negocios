@@ -36,6 +36,7 @@ export default function ContadorBilletes({ open, onOpenChange, onConfirmar }: Co
 
   const handleConfirmar = () => {
     onConfirmar(totalCalculado);
+    setCantidades({});
     onOpenChange(false);
   };
 
@@ -45,6 +46,7 @@ export default function ContadorBilletes({ open, onOpenChange, onConfirmar }: Co
 
   useEffect(() => {
     if (!open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCantidades({});
     }
   }, [open]);

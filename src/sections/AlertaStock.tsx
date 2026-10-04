@@ -4,12 +4,20 @@ import { Badge } from '@/components/ui/badge';
 import { 
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
 } from '@/components/ui/table';
-import { useProductos } from '@/hooks/useStorage';
+import { useProductos } from '@/hooks/supabase/useSupabaseData';
 
 export default function AlertaStock() {
-  const { productos } = useProductos();
+  const { data: productos, loading } = useProductos();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
   
-  const productosAlerta = productos.filter(p => 
+  const productosAlerta = productos.filter(p =>
     (p.stock <= p.stockMinimo || p.stock <= 0) && p.activo
   );
 

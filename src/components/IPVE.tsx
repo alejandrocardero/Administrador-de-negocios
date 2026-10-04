@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from 'react';
-import { File, Printer, Save, X } from 'lucide-react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { File, Loader2, Printer, Save, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -12,14 +12,14 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { useVendedores, useProductos, useIPVE, formatCurrency } from '@/hooks/useStorage';
-import type { User } from '@/hooks/useAuth';
+import { useVendedores, useProductos, useRegistrosIPVE, formatCurrency } from '@/hooks/supabase/useSupabaseData';
+import type { AuthUser } from '@/contexts/AuthContext';
 import type { Producto } from '@/types';
 
 interface IPVEProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  user?: User;
+  user?: AuthUser;
   modoDiario?: boolean;
 }
 
@@ -32,7 +32,7 @@ interface ProductoIPVE extends Producto {
 export default function IPVE({ open, onOpenChange, user, modoDiario = false }: IPVEProps) {
   const { vendedores, getVendedorByNombre } = useVendedores();
   const { productos } = useProductos();
-  const { guardarRegistrosIPVE, guardarIPVEDiarioYHistorico, getRegistrosByFecha, getRegistrosDiariosByFecha } = useIPVE();
+  const { getRegistrosDiariosByFecha, getRegistrosByFecha, agregarOActualizarRegistro } = useRegistrosIPVE();
   
   const vendedorPrederminado = useMemo(() => {
     if (!user || user.role === 'jefe' || user.role === 'admin') return '';
@@ -45,13 +45,15 @@ export default function IPVE({ open, onOpenChange, user, modoDiario = false }: I
   const fecha = `${hoyLocal.getFullYear()}-${String(hoyLocal.getMonth() + 1).padStart(2, '0')}-${String(hoyLocal.getDate()).padStart(2, '0')}`;
   const [productosIPVE, setProductosIPVE] = useState<ProductoIPVE[]>([]);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [guardarVendedorOpen, setGuardarVendedorOpen] = useState(false);
 
   const selectedVendedor = useMemo(() => 
     vendedores.find(v => v.id === vendedorId), 
   [vendedorId, vendedores]);
 
-const initializeProductos = () => {
+  const initializeProductos = () => {
     if (!vendedorId) {
       const inicial = productos.map(p => ({
         ...p,
@@ -98,12 +100,14 @@ const initializeProductos = () => {
       setProductosIPVE([]);
       setSaved(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {
     if (open && vendedorId) {
       initializeProductos();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vendedorId]);
 
   const updateProducto = (productoId: string, field: 'inicio' | 'entrada' | 'final', value: number) => {
@@ -117,87 +121,130 @@ const initializeProductos = () => {
 
   const isToday = fecha === `${hoyLocal.getFullYear()}-${String(hoyLocal.getMonth() + 1).padStart(2, '0')}-${String(hoyLocal.getDate()).padStart(2, '0')}`;
 
-  const handleSave = () => {
-    if (!isToday) return;
-    
-    const currentVendedorId = vendedorId || vendedorIdTemporal;
-    const currentVendedor = vendedores.find(v => v.id === currentVendedorId);
-    
-    if (!currentVendedorId || !currentVendedor) {
-      setGuardarVendedorOpen(true);
-      return;
+  const handleSave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      if (!isToday) return;
+
+      const currentVendedorId = vendedorId || vendedorIdTemporal;
+      const currentVendedor = vendedores.find(v => v.id === currentVendedorId);
+
+      if (!currentVendedorId || !currentVendedor) {
+        setGuardarVendedorOpen(true);
+        return;
+      }
+
+      const tipo: 'diario' | 'historico' = modoDiario ? 'diario' : 'historico';
+
+      const registrosNuevos = productosIPVE.map(p => ({
+        fecha,
+        vendedorId: currentVendedorId,
+        vendedorNombre: currentVendedor.nombre,
+        productoId: p.id,
+        productoNombre: p.nombre,
+        inicio: p.inicio,
+        entrada: p.entrada,
+        final: p.final,
+        precioVenta: p.precioVenta,
+        tipo,
+      }));
+
+      for (const registro of registrosNuevos) {
+        await agregarOActualizarRegistro(registro);
+      }
+      setSaved(true);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
-
-    const tipo: 'diario' | 'historico' = modoDiario ? 'diario' : 'historico';
-
-    const registrosNuevos = productosIPVE.map(p => ({
-      fecha,
-      vendedorId: currentVendedorId,
-      vendedorNombre: currentVendedor.nombre,
-      productoId: p.id,
-      productoNombre: p.nombre,
-      inicio: p.inicio,
-      entrada: p.entrada,
-      final: p.final,
-      precioVenta: p.precioVenta,
-      tipo,
-    }));
-
-    guardarRegistrosIPVE(registrosNuevos);
-    setSaved(true);
   };
 
-const handleConfirmarGuardarConVendedor = () => {
-    if (!vendedorIdTemporal) return;
-    
-    const currentVendedor = vendedores.find(v => v.id === vendedorIdTemporal);
-    if (!currentVendedor) return;
+const handleConfirmarGuardarConVendedor = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      if (!vendedorIdTemporal) return;
 
-    const tipo: 'diario' | 'historico' = modoDiario ? 'diario' : 'historico';
+      const currentVendedor = vendedores.find(v => v.id === vendedorIdTemporal);
+      if (!currentVendedor) return;
 
-    const registrosNuevos = productosIPVE.map(p => ({
-      fecha,
-      vendedorId: vendedorIdTemporal,
-      vendedorNombre: currentVendedor.nombre,
-      productoId: p.id,
-      productoNombre: p.nombre,
-      inicio: p.inicio,
-      entrada: p.entrada,
-      final: p.final,
-      precioVenta: p.precioVenta,
-      tipo,
-    }));
+      const tipo: 'diario' | 'historico' = modoDiario ? 'diario' : 'historico';
 
-    guardarRegistrosIPVE(registrosNuevos);
-    setSaved(true);
-    setGuardarVendedorOpen(false);
-    setVendedorIdTemporal('');
+      const registrosNuevos = productosIPVE.map(p => ({
+        fecha,
+        vendedorId: vendedorIdTemporal,
+        vendedorNombre: currentVendedor.nombre,
+        productoId: p.id,
+        productoNombre: p.nombre,
+        inicio: p.inicio,
+        entrada: p.entrada,
+        final: p.final,
+        precioVenta: p.precioVenta,
+        tipo,
+      }));
+
+      for (const registro of registrosNuevos) {
+        await agregarOActualizarRegistro(registro);
+      }
+      setSaved(true);
+      setGuardarVendedorOpen(false);
+      setVendedorIdTemporal('');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
-  const handleGuardarDia = () => {
-    if (!isToday) return;
-    
-    const currentVendedorId = vendedorId || vendedorIdTemporal;
-    const currentVendedor = vendedores.find(v => v.id === currentVendedorId);
-    if (!currentVendedorId || !currentVendedor) {
-      setGuardarVendedorOpen(true);
-      return;
-    }
-    
-    const registrosNuevos = productosIPVE.map(p => ({
-      fecha,
-      vendedorId: currentVendedorId,
-      vendedorNombre: currentVendedor.nombre,
-      productoId: p.id,
-      productoNombre: p.nombre,
-      inicio: p.inicio,
-      entrada: p.entrada,
-      final: p.final,
-      precioVenta: p.precioVenta,
-    }));
+  const handleGuardarDia = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      if (!isToday) return;
 
-    guardarIPVEDiarioYHistorico(registrosNuevos);
-    setSaved(true);
+      const currentVendedorId = vendedorId || vendedorIdTemporal;
+      const currentVendedor = vendedores.find(v => v.id === currentVendedorId);
+      if (!currentVendedorId || !currentVendedor) {
+        setGuardarVendedorOpen(true);
+        return;
+      }
+
+      for (const p of productosIPVE) {
+        // Guardar como diario
+        await agregarOActualizarRegistro({
+          fecha,
+          vendedorId: currentVendedorId,
+          vendedorNombre: currentVendedor.nombre,
+          productoId: p.id,
+          productoNombre: p.nombre,
+          inicio: p.inicio,
+          entrada: p.entrada,
+          final: p.final,
+          precioVenta: p.precioVenta,
+          tipo: 'diario'
+        });
+        // Guardar como histórico
+        await agregarOActualizarRegistro({
+          fecha,
+          vendedorId: currentVendedorId,
+          vendedorNombre: currentVendedor.nombre,
+          productoId: p.id,
+          productoNombre: p.nombre,
+          inicio: p.inicio,
+          entrada: p.entrada,
+          final: p.final,
+          precioVenta: p.precioVenta,
+          tipo: 'historico'
+        });
+      }
+      setSaved(true);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   const totales = useMemo(() => {
@@ -433,19 +480,21 @@ const handleConfirmarGuardarConVendedor = () => {
                 </Button>
                 <Button 
                   onClick={handleSave}
-                  disabled={!isToday}
+                  disabled={!isToday || saving}
                   variant={modoDiario ? "default" : "outline"}
                 >
+                  {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                   <Save className="w-4 h-4 mr-2" />
                   {saved && !modoDiario ? 'Guardado' : isToday ? 'Guardar' : 'No editable'}
                 </Button>
                 {modoDiario && (
                   <Button 
                     onClick={handleGuardarDia}
-                    disabled={!isToday}
+                    disabled={!isToday || saving}
                     variant="default"
                     className="bg-green-600 hover:bg-green-700"
                   >
+                    {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                     <Save className="w-4 h-4 mr-2" />
                     Guardar Día
                   </Button>
@@ -496,8 +545,9 @@ const handleConfirmarGuardarConVendedor = () => {
             </Button>
             <Button 
               onClick={handleConfirmarGuardarConVendedor} 
-              disabled={!vendedorIdTemporal}
+              disabled={!vendedorIdTemporal || saving}
             >
+              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Guardar
             </Button>
           </DialogFooter>

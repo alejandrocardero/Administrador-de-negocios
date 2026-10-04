@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Package, ShoppingCart, CheckCircle, XCircle, FileText } from 'lucide-react';
+import { useState, useMemo, useRef } from 'react';
+import { Package, ShoppingCart, CheckCircle, XCircle, FileText, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,20 +11,19 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
 import { Label } from '@/components/ui/label';
-import { useProductos, usePedidos, useIPVE, useVendedores, formatCurrency } from '@/hooks/useStorage';
-import type { User } from '@/hooks/useAuth';
-import type { Pedido } from '@/types';
+import { useProductos, usePedidos, useRegistrosIPVE, useVendedores, formatCurrency } from '@/hooks/supabase/useSupabaseData';
+import type { Pedido, AuthUser } from '@/types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 interface ProductosDisponiblesProps {
-  user: User;
+  user: AuthUser;
 }
 
 export default function ProductosDisponibles({ user }: ProductosDisponiblesProps) {
   const { productos } = useProductos();
   const { pedidos, agregarPedido, actualizarPedido } = usePedidos();
-  const { agregarEntrada } = useIPVE();
+  const { agregarEntrada } = useRegistrosIPVE();
   const { getVendedorByNombre } = useVendedores();
   const [searchQuery, setSearchQuery] = useState('');
   const [showSinStock, setShowSinStock] = useState(false);
@@ -34,6 +33,8 @@ export default function ProductosDisponibles({ user }: ProductosDisponiblesProps
   const [notasPedido, setNotasPedido] = useState('');
   const [confirmEntregaOpen, setConfirmEntregaOpen] = useState(false);
   const [pedidoAConfirmar, setPedidoAConfirmar] = useState<Pedido | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const vendedorId = user.username;
 
@@ -76,24 +77,32 @@ const misPedidosAprobados = useMemo(() => {
     setConfirmEntregaOpen(true);
   };
 
-  const handleAceptarEntrega = () => {
-    if (!pedidoAConfirmar) return;
-    
-    const producto = productos.find(p => p.id === pedidoAConfirmar.productoId);
-    if (!producto) return;
-    
-    const vendedor = getVendedorByNombre(user.nombre);
-    
-    actualizarPedido(pedidoAConfirmar.id, { estado: 'entregado' });
-    
-    if (vendedor) {
-      const hoyLocal = new Date();
-      const fecha = `${hoyLocal.getFullYear()}-${String(hoyLocal.getMonth() + 1).padStart(2, '0')}-${String(hoyLocal.getDate()).padStart(2, '0')}`;
-      agregarEntrada(fecha, vendedor.id, producto.id, producto.nombre, pedidoAConfirmar.cantidadEntregada || 0, producto.precioVenta);
+  const handleAceptarEntrega = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      if (!pedidoAConfirmar) return;
+
+      const producto = productos.find(p => p.id === pedidoAConfirmar.productoId);
+      if (!producto) return;
+
+      const vendedor = getVendedorByNombre(user.nombre);
+
+      await actualizarPedido(pedidoAConfirmar.id, { estado: 'entregado' });
+
+      if (vendedor) {
+        const hoyLocal = new Date();
+        const fecha = `${hoyLocal.getFullYear()}-${String(hoyLocal.getMonth() + 1).padStart(2, '0')}-${String(hoyLocal.getDate()).padStart(2, '0')}`;
+        await agregarEntrada(fecha, vendedor.id, producto.id, producto.nombre, pedidoAConfirmar.cantidadEntregada || 0, producto.precioVenta);
+      }
+
+      setConfirmEntregaOpen(false);
+      setPedidoAConfirmar(null);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
-    
-    setConfirmEntregaOpen(false);
-    setPedidoAConfirmar(null);
   };
 
   const handleRechazarEntrega = () => {
@@ -106,20 +115,28 @@ const misPedidosAprobados = useMemo(() => {
     setPedidoAConfirmar(null);
   };
 
-  const handleConfirmarPedido = () => {
-    if (!productoSeleccionado) return;
-    const producto = productos.find(p => p.id === productoSeleccionado);
-    if (!producto) return;
+  const handleConfirmarPedido = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      if (!productoSeleccionado) return;
+      const producto = productos.find(p => p.id === productoSeleccionado);
+      if (!producto) return;
 
-    agregarPedido({
-      vendedorId,
-      vendedorNombre: user.nombre,
-      productoId: producto.id,
-      productoNombre: producto.nombre,
-      cantidad: cantidadPedido,
-      notas: notasPedido || undefined,
-    });
-    setPedidoOpen(false);
+      await agregarPedido({
+        vendedorId,
+        vendedorNombre: user.nombre,
+        productoId: producto.id,
+        productoNombre: producto.nombre,
+        cantidad: cantidadPedido,
+        notas: notasPedido || undefined,
+      });
+      setPedidoOpen(false);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   return (
@@ -367,7 +384,10 @@ const misPedidosAprobados = useMemo(() => {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setPedidoOpen(false)}>Cancelar</Button>
-            <Button onClick={handleConfirmarPedido}>Confirmar Pedido</Button>
+            <Button onClick={handleConfirmarPedido} disabled={saving}>
+              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Confirmar Pedido
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -392,7 +412,10 @@ const misPedidosAprobados = useMemo(() => {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={handleRechazarEntrega}>No estoy de acuerdo</Button>
-            <Button onClick={handleAceptarEntrega}>Sí, confirmar</Button>
+            <Button onClick={handleAceptarEntrega} disabled={saving}>
+              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Sí, confirmar
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

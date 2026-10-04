@@ -4,25 +4,36 @@ import { defineConfig } from "vite"
 import { inspectAttr } from 'kimi-plugin-inspect-react'
 
 // https://vite.dev/config/
-export default defineConfig({
-  base: './',
-  plugins: [inspectAttr(), react()],
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
+export default defineConfig(({ mode }) => {
+  const isElectron = mode === 'electron'
+  
+  return {
+    base: isElectron ? './' : '/',
+    plugins: [inspectAttr(), react()],
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
+      },
     },
-  },
-  server: {
-    host: '0.0.0.0',
-    port: 5173,
-    strictPort: false,
-    allowedHosts: true,
-    cors: true,
-    fs: {
-      allow: ['..'],
+    server: {
+      host: '0.0.0.0',
+      port: 5173,
+      strictPort: false,
+      allowedHosts: true,
+      cors: true,
+      fs: {
+        allow: ['..'],
+      },
     },
-  },
-  optimizeDeps: {
-    include: ['react', 'react-dom'],
-  },
-});
+    build: {
+      outDir: isElectron ? 'dist-electron' : 'dist',
+      emptyOutDir: true,
+    },
+    optimizeDeps: {
+      include: ['react', 'react-dom', '@supabase/supabase-js'],
+    },
+    define: {
+      'import.meta.env.ELECTRON': isElectron,
+    }
+  }
+})
