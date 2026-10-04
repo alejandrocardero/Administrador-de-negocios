@@ -31,5 +31,5 @@
     "noUncheckedSideEffectImports": true
   },
   "include": ["src"],
-  "exclude": ["src/hooks/future", "src/scripts"]
+  "exclude": []
 }

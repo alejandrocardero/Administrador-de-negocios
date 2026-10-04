@@ -31,7 +31,7 @@ export function BusinessLanding({ onOpenOnboarding }: BusinessLandingProps) {
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null)
   const [loginLoading, setLoginLoading] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
-  const [loginForm, setLoginForm] = useState({ identifier: '', password: '' })
+  const [formLogin, setFormLogin] = useState({ identifier: '', password: '' })
   const isSuperAdminUser = user && isSuperAdmin(user.email)
 
   // Determinar si es email (contiene @) o username
@@ -161,11 +161,11 @@ export function BusinessLanding({ onOpenOnboarding }: BusinessLandingProps) {
 
                     <form onSubmit={async (e) => {
                       e.preventDefault()
-                      console.log('Intentando login con:', loginForm.identifier)
+                      console.log('Intentando login con:', formLogin.identifier)
                       setLoginLoading(true)
                       setLoginError(null)
                       try {
-                        const result = await handleLogin(loginForm.identifier, loginForm.password, deviceLockedBusinessId)
+                        const result = await handleLogin(formLogin.identifier, formLogin.password, deviceLockedBusinessId)
                         console.log('Resultado login:', result)
                         if (result.success) {
                           console.log('Login exitoso, bloqueando dispositivo...')
@@ -187,8 +187,8 @@ export function BusinessLanding({ onOpenOnboarding }: BusinessLandingProps) {
                         <Input
                           id="identifier"
                           type="text"
-                          value={loginForm.identifier}
-                          onChange={e => setLoginForm({ ...loginForm, identifier: e.target.value })}
+                          value={formLogin.identifier}
+                          onChange={e => setFormLogin({ ...formLogin, identifier: e.target.value })}
                           placeholder="usuario o email@dominio.com"
                           required
                           autoComplete="username"
@@ -200,8 +200,8 @@ export function BusinessLanding({ onOpenOnboarding }: BusinessLandingProps) {
                         <Input
                           id="password"
                           type="password"
-                          value={loginForm.password}
-                          onChange={e => setLoginForm({ ...loginForm, password: e.target.value })}
+                          value={formLogin.password}
+                          onChange={e => setFormLogin({ ...formLogin, password: e.target.value })}
                           placeholder="Tu contraseña"
                           required
                           autoComplete="current-password"
@@ -240,7 +240,7 @@ export function BusinessLanding({ onOpenOnboarding }: BusinessLandingProps) {
                     onClick={() => {
                       selectBusiness(biz.id)
                       setSelectedBusinessId(biz.id)
-                      setLoginForm({ identifier: '', password: '' })
+                      setFormLogin({ identifier: '', password: '' })
                       setLoginError(null)
                     }}
                   >
@@ -273,11 +273,11 @@ export function BusinessLanding({ onOpenOnboarding }: BusinessLandingProps) {
 
                     <form onSubmit={async (e) => {
                       e.preventDefault()
-                      console.log('Intentando login con:', loginForm.identifier)
+                      console.log('Intentando login con:', formLogin.identifier)
                       setLoginLoading(true)
                       setLoginError(null)
                       try {
-                        const result = await handleLogin(loginForm.identifier, loginForm.password, selectedBusinessId)
+                        const result = await handleLogin(formLogin.identifier, formLogin.password, selectedBusinessId)
                         console.log('Resultado login:', result)
                         if (result.success) {
                           console.log('Login exitoso, bloqueando dispositivo...')
@@ -299,8 +299,8 @@ export function BusinessLanding({ onOpenOnboarding }: BusinessLandingProps) {
                         <Input
                           id="identifier"
                           type="text"
-                          value={loginForm.identifier}
-                          onChange={e => setLoginForm({ ...loginForm, identifier: e.target.value })}
+                          value={formLogin.identifier}
+                          onChange={e => setFormLogin({ ...formLogin, identifier: e.target.value })}
                           placeholder="usuario o email@dominio.com"
                           required
                           autoComplete="username"
@@ -312,8 +312,8 @@ export function BusinessLanding({ onOpenOnboarding }: BusinessLandingProps) {
                         <Input
                           id="password"
                           type="password"
-                          value={loginForm.password}
-                          onChange={e => setLoginForm({ ...loginForm, password: e.target.value })}
+                          value={formLogin.password}
+                          onChange={e => setFormLogin({ ...formLogin, password: e.target.value })}
                           placeholder="Tu contraseña"
                           required
                           autoComplete="current-password"

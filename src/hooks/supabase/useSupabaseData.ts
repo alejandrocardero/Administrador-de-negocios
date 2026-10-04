@@ -45,7 +45,7 @@ import {
   fromFiado
 } from '@/lib/mappers'
 
-export { formatCurrency, formatDate, formatDateTime, generateId } from '@/hooks/useStorage'
+export { formatCurrency, formatDate, formatDateTime, generateId } from '@/lib/formatters'
 
 type TableName = keyof Database['public']['Tables']
 

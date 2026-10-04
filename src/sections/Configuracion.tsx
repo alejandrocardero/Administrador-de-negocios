@@ -40,7 +40,6 @@ export default function Configuracion() {
   useEffect(() => {
     if (!initializedRef.current && config) {
       initializedRef.current = true;
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFormData(config);
     }
   }, [config]);

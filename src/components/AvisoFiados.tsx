@@ -39,7 +39,6 @@ export default function AvisoFiados({ onCobrado }: AvisoFiadosProps) {
 
     if (hayPendientes && (force || lastShown !== hoy)) {
       hasShownRef.current = true;
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsOpen(true);
     }
 
