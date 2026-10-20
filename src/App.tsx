@@ -19,6 +19,8 @@ import Compradores from '@/sections/Compradores';
 import Compras from '@/sections/Compras';
 import Gastos from '@/sections/Gastos';
 import Impuestos from '@/sections/Impuestos';
+import SyncIndicator from '@/components/SyncIndicator';
+import ConflictResolver from '@/components/ConflictResolver';
 import Reportes from '@/sections/Reportes';
 import Configuracion from '@/sections/Configuracion';
 import Pedidos from '@/sections/Pedidos';
@@ -257,6 +259,7 @@ function Header({
           })}</span>
         </div>
         <UserAvatar />
+        <SyncIndicator />
         <Button variant="ghost" size="icon" onClick={onLogout} title="Cerrar sesión" className="h-8 w-8 sm:h-9 sm:w-9">
           <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
         </Button>
@@ -381,6 +384,8 @@ export default function App() {
           onMenuClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           onLogout={logout}
         />
+
+        <ConflictResolver />
 
         <main key={dataVersion} className="flex-1 overflow-auto p-4 lg:p-6">
           {renderSection()}
