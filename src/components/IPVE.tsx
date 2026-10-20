@@ -14,13 +14,15 @@ import {
 import { Label } from '@/components/ui/label';
 import { useVendedores, useProductos, useRegistrosIPVE, formatCurrency } from '@/hooks/supabase/useSupabaseData';
 import type { AuthUser } from '@/contexts/AuthContext';
-import type { Producto } from '@/types';
+import type { Producto, VentaDiaria } from '@/types';
 
 interface IPVEProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   user?: AuthUser;
   modoDiario?: boolean;
+  totalCierre?: number; // total desde el registro de cierre de ventas
+  ventasHoy?: VentaDiaria[]; // ventas del día, para comparar el cierre por vendedor
 }
 
 interface ProductoIPVE extends Producto {
@@ -29,7 +31,7 @@ interface ProductoIPVE extends Producto {
   final: number;
 }
 
-export default function IPVE({ open, onOpenChange, user, modoDiario = false }: IPVEProps) {
+export default function IPVE({ open, onOpenChange, user, modoDiario = false, totalCierre, ventasHoy }: IPVEProps) {
   const { vendedores, getVendedorByNombre } = useVendedores();
   const { productos } = useProductos();
   const { getRegistrosDiariosByFecha, getRegistrosByFecha, agregarOActualizarRegistro } = useRegistrosIPVE();
@@ -48,6 +50,7 @@ export default function IPVE({ open, onOpenChange, user, modoDiario = false }: I
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [guardarVendedorOpen, setGuardarVendedorOpen] = useState(false);
+  const [alerta, setAlerta] = useState<'faltante' | 'sobrante' | null>(null);
 
   const selectedVendedor = useMemo(() => 
     vendedores.find(v => v.id === vendedorId), 
@@ -110,6 +113,15 @@ export default function IPVE({ open, onOpenChange, user, modoDiario = false }: I
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vendedorId]);
 
+  // Si el diálogo se abre antes de que los productos terminen de cargar
+  // (red lenta / móvil), reinicializar cuando lleguen — sin borrar ediciones.
+  useEffect(() => {
+    if (open && productos.length > 0 && productosIPVE.length === 0) {
+      initializeProductos();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productos]);
+
   const updateProducto = (productoId: string, field: 'inicio' | 'entrada' | 'final', value: number) => {
     setProductosIPVE(prev => prev.map(p => {
       if (p.id === productoId) {
@@ -155,6 +167,11 @@ export default function IPVE({ open, onOpenChange, user, modoDiario = false }: I
         await agregarOActualizarRegistro(registro);
       }
       setSaved(true);
+      // Validar importe IPVE contra registro de cierre
+      validarCierre();
+    } catch (error) {
+      console.error('Error guardando IPVE:', error);
+      alert('Error al guardar el IPVE: ' + (error instanceof Error ? error.message : 'error desconocido'));
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -192,6 +209,9 @@ const handleConfirmarGuardarConVendedor = async () => {
       setSaved(true);
       setGuardarVendedorOpen(false);
       setVendedorIdTemporal('');
+    } catch (error) {
+      console.error('Error guardando IPVE:', error);
+      alert('Error al guardar el IPVE: ' + (error instanceof Error ? error.message : 'error desconocido'));
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -241,6 +261,11 @@ const handleConfirmarGuardarConVendedor = async () => {
         });
       }
       setSaved(true);
+      // Validar importe IPVE contra registro de cierre
+      validarCierre();
+    } catch (error) {
+      console.error('Error guardando el día:', error);
+      alert('Error al guardar el día: ' + (error instanceof Error ? error.message : 'error desconocido'));
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -260,6 +285,37 @@ const handleConfirmarGuardarConVendedor = async () => {
       };
     }, { inicio: 0, entrada: 0, final: 0, vendido: 0, importe: 0 });
   }, [productosIPVE]);
+
+  // Cierre a comparar: con vendedor seleccionado, el cierre de SUS ventas del día;
+  // sin vendedor, el total del día (totalCierre por compatibilidad).
+  const cierreComparacion = useMemo(() => {
+    if (ventasHoy !== undefined) {
+      const delVendedor = selectedVendedor
+        ? ventasHoy.filter(v => v.vendedorId === selectedVendedor.id)
+        : ventasHoy;
+      return delVendedor.reduce((sum, v) => sum + v.totalVendido, 0);
+    }
+    return totalCierre;
+  }, [ventasHoy, selectedVendedor, totalCierre]);
+
+  const validarCierre = () => {
+    if (cierreComparacion === undefined) return;
+    const diferencia = Math.round((totales.importe - cierreComparacion) * 100) / 100;
+    if (diferencia > 0) {
+      setAlerta('sobrante');
+    } else if (diferencia < 0) {
+      setAlerta('faltante');
+    } else {
+      setAlerta(null);
+    }
+  };
+
+  useEffect(() => {
+    if (cierreComparacion !== undefined && !saving) {
+      validarCierre();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totales.importe, cierreComparacion]);
 
   const handlePrint = () => {
     const printContent = generatePrintContent();
@@ -369,6 +425,24 @@ const handleConfirmarGuardarConVendedor = async () => {
             <DialogDescription>
               Ingrese el inventario de productos en venta del día
             </DialogDescription>
+            {alerta === 'sobrante' && cierreComparacion !== undefined && (
+              <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-3 rounded mb-4">
+                <p className="font-medium">⚠️ Sobrante detectado</p>
+                <p className="text-sm">El importe del IPVE (${totales.importe}) excede el total del registro de cierre (${cierreComparacion}). Verifique los datos.</p>
+              </div>
+            )}
+            {alerta === 'faltante' && cierreComparacion !== undefined && (
+              <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-3 rounded mb-4">
+                <p className="font-medium">⚠️ Faltante detectado</p>
+                <p className="text-sm">El importe del IPVE (${totales.importe}) es menor al total del registro de cierre (${cierreComparacion}). Faltan ${Math.abs(totales.importe - cierreComparacion)}.</p>
+              </div>
+            )}
+            {alerta === null && cierreComparacion !== undefined && (
+              <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-3 rounded mb-4">
+                <p className="font-medium">✅ IPVE coincide con el registro de cierre</p>
+                <p className="text-sm">El importe del IPVE (${totales.importe}) coincide exactamente con el total del registro de cierre.</p>
+              </div>
+            )}
           </DialogHeader>
 
         <div className="space-y-4">

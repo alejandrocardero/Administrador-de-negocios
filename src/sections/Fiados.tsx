@@ -148,7 +148,8 @@ export default function Fiados() {
           <CardTitle className="text-lg">Lista de Fiados</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          {/* Vista de tabla (escritorio) */}
+          <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -211,6 +212,70 @@ export default function Fiados() {
                 )}
               </TableBody>
             </Table>
+          </div>
+
+          {/* Vista de tarjetas (móvil) */}
+          <div className="md:hidden space-y-3">
+            {fiadosFiltrados.length === 0 ? (
+              <p className="text-center py-8 text-slate-500">No se encontraron fiados</p>
+            ) : (
+              fiadosFiltrados.map((fiado) => (
+                <Card key={fiado.id} className="p-0">
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{fiado.clienteNombre}</p>
+                        <p className="text-xs text-slate-500">{formatDate(fiado.fecha)} · {fiado.vendedorNombre}</p>
+                      </div>
+                      <div className="shrink-0">
+                        {fiado.estado === 'pendiente' ? (
+                          <Badge variant="destructive" className="gap-1">
+                            <Clock className="w-3 h-3" />
+                            Pendiente {diasPendientes(fiado.fecha) > 0 && (
+                              <span className="text-xs">({diasPendientes(fiado.fecha)}d)</span>
+                            )}
+                          </Badge>
+                        ) : (
+                          <Badge variant="default" className="bg-green-500">
+                            <CheckCircle2 className="w-3 h-3 mr-1" />
+                            Cobrado
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                      <div className="min-w-0">
+                        <dt className="text-xs text-slate-500">Monto</dt>
+                        <dd className="font-bold">{formatCurrency(fiado.monto)}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-xs text-slate-500">Fecha Cobro</dt>
+                        <dd>{fiado.fechaCobro ? formatDate(fiado.fechaCobro) : '-'}</dd>
+                      </div>
+                      {fiado.descripcion && (
+                        <div className="col-span-2 min-w-0">
+                          <dt className="text-xs text-slate-500">Productos</dt>
+                          <dd className="break-words">{fiado.descripcion}</dd>
+                        </div>
+                      )}
+                    </dl>
+                    {fiado.estado === 'pendiente' && (
+                      <div className="flex justify-end">
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => handleCobrar(fiado.id)}
+                          className="gap-1"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Cobrar
+                        </Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))
+            )}
           </div>
         </CardContent>
       </Card>

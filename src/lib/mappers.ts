@@ -99,6 +99,7 @@ export function toVentaDiaria(r: Tables<'ventas_diarias'>): VentaDiaria {
     montoTransferencia: r.monto_transferencia,
     totalVendido: r.total_vendido,
     salarioCalculado: r.salario_calculado,
+    diferenciaCaja: r.diferencia_caja ?? null,
     notas: r.notas ?? undefined
   }
 }
@@ -110,8 +111,9 @@ export function fromVentaDiaria(v: Partial<VentaDiaria>): OmitMeta<TablesInsert<
     vendedor_nombre: v.vendedorNombre,
     monto_efectivo: v.montoEfectivo,
     monto_transferencia: v.montoTransferencia,
-    total_vendido: v.totalVendido,
+    // total_vendido es GENERATED en el servidor (001:131): nunca se envía
     salario_calculado: v.salarioCalculado,
+    diferencia_caja: v.diferenciaCaja,
     notas: v.notas
   }) as OmitMeta<TablesInsert<'ventas_diarias'>>
 }
@@ -262,6 +264,38 @@ export function toRegistroIPVE(r: Tables<'registros_ipve'>): RegistroIPVE {
     precioVenta: r.precio_venta,
     tipo: r.tipo
   }
+}
+
+export function fromRegistroIPVE(input: Partial<RegistroIPVE>): OmitMeta<TablesInsert<'registros_ipve'>> {
+  return stripUndefined({
+    fecha: input.fecha,
+    vendedor_id: input.vendedorId,
+    vendedor_nombre: input.vendedorNombre,
+    producto_id: input.productoId,
+    producto_nombre: input.productoNombre,
+    inicio: input.inicio,
+    entrada: input.entrada,
+    final: input.final,
+    precio_venta: input.precioVenta,
+    tipo: input.tipo
+  }) as OmitMeta<TablesInsert<'registros_ipve'>>
+}
+
+export function fromSolicitud(input: Partial<SolicitudProductoNuevo>): OmitMeta<TablesInsert<'solicitudes_producto_nuevo'>> {
+  return stripUndefined({
+    fecha: input.fecha,
+    comprador_id: input.compradorId,
+    comprador_nombre: input.compradorNombre,
+    nombre_producto: input.nombreProducto,
+    precio_compra: input.precioCompra,
+    cantidad: input.cantidad,
+    estado: input.estado,
+    notas: input.notas,
+    precio_venta: input.precioVenta,
+    stock_minimo: input.stockMinimo,
+    producto_id: input.productoId,
+    comentario_admin: input.comentarioAdmin
+  }) as OmitMeta<TablesInsert<'solicitudes_producto_nuevo'>>
 }
 
 // ---------------------------------------------

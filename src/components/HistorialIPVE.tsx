@@ -74,8 +74,8 @@ export default function HistorialIPVE({ open, onOpenChange }: HistorialIPVEProps
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex gap-4 mb-4">
-          <div className="space-y-2">
+        <div className="flex flex-wrap gap-4 mb-4">
+          <div className="space-y-2 min-w-40 flex-1 sm:flex-none">
             <Label>Vendedor</Label>
             <select 
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
@@ -89,7 +89,7 @@ export default function HistorialIPVE({ open, onOpenChange }: HistorialIPVEProps
             </select>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2 min-w-40 flex-1 sm:flex-none">
             <Label>Fecha</Label>
             <select 
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
@@ -134,7 +134,7 @@ export default function HistorialIPVE({ open, onOpenChange }: HistorialIPVEProps
               </TableBody>
             </Table>
 
-            <div className="grid grid-cols-4 gap-4 p-4 bg-muted rounded-lg">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-muted rounded-lg">
               <div>
                 <p className="text-sm text-muted-foreground">Total Inicio</p>
                 <p className="text-lg font-bold">{selectedRegistro.totalInicio}</p>

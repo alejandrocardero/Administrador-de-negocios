@@ -16,7 +16,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, 
   DialogDescription, DialogFooter 
 } from '@/components/ui/dialog';
-import { useGastos, formatCurrency, formatDate } from '@/hooks/supabase/useSupabaseData';
+import { useGastos, formatCurrency, formatDate, toFechaLocal } from '@/hooks/supabase/useSupabaseData';
 import type { Gasto } from '@/types';
 
 const categoriasGasto = [
@@ -46,7 +46,7 @@ export default function Gastos() {
   const savingRef = useRef(false);
 
   const [formData, setFormData] = useState({
-    fecha: new Date().toISOString().split('T')[0],
+    fecha: toFechaLocal(new Date()),
     concepto: '',
     categoria: 'otros' as Gasto['categoria'],
     monto: '',
@@ -82,7 +82,7 @@ export default function Gastos() {
     } else {
       setEditingGasto(null);
       setFormData({
-        fecha: new Date().toISOString().split('T')[0],
+        fecha: toFechaLocal(new Date()),
         concepto: '',
         categoria: 'otros',
         monto: '',
@@ -99,7 +99,7 @@ export default function Gastos() {
     setSaving(true);
     try {
       const gastoData = {
-        fecha: new Date(formData.fecha).toISOString(),
+        fecha: toFechaLocal(formData.fecha),
         concepto: formData.concepto,
         categoria: formData.categoria,
         monto: parseFloat(formData.monto) || 0,

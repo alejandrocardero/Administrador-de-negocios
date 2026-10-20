@@ -206,29 +206,72 @@ export default function AprobarProductos() {
           {filteredPendientes.length === 0 ? (
             <p className="text-center py-8 text-slate-500">No hay solicitudes pendientes</p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Comprador</TableHead>
-                  <TableHead>Producto</TableHead>
-                  <TableHead className="text-right">P. Compra</TableHead>
-                  <TableHead className="text-center">Cantidad</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              {/* Vista de tabla (escritorio) */}
+              <div className="hidden md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Comprador</TableHead>
+                      <TableHead>Producto</TableHead>
+                      <TableHead className="text-right">P. Compra</TableHead>
+                      <TableHead className="text-center">Cantidad</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredPendientes.map(s => (
+                      <TableRow key={s.id}>
+                        <TableCell className="text-sm">{formatDate(s.fecha)}</TableCell>
+                        <TableCell>{s.compradorNombre}</TableCell>
+                        <TableCell className="font-medium">{s.nombreProducto}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(s.precioCompra)}</TableCell>
+                        <TableCell className="text-center">{s.cantidad}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(s.precioCompra * s.cantidad)}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex gap-2 justify-end">
+                            <Button size="sm" onClick={() => handleOpenAprobar(s)}>
+                              <CheckCircle className="w-3 h-3 mr-1" />
+                              Aprobar
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => handleOpenRechazar(s)}>
+                              <XCircle className="w-3 h-3 mr-1" />
+                              Rechazar
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Vista de tarjetas (móvil) */}
+              <div className="md:hidden space-y-3">
                 {filteredPendientes.map(s => (
-                  <TableRow key={s.id}>
-                    <TableCell className="text-sm">{formatDate(s.fecha)}</TableCell>
-                    <TableCell>{s.compradorNombre}</TableCell>
-                    <TableCell className="font-medium">{s.nombreProducto}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(s.precioCompra)}</TableCell>
-                    <TableCell className="text-center">{s.cantidad}</TableCell>
-                    <TableCell className="text-right font-medium">{formatCurrency(s.precioCompra * s.cantidad)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex gap-2 justify-end">
+                  <Card key={s.id} className="p-0">
+                    <CardContent className="p-4 space-y-3">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{s.nombreProducto}</p>
+                        <p className="text-xs text-slate-500">{formatDate(s.fecha)} · {s.compradorNombre}</p>
+                      </div>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        <div className="min-w-0">
+                          <dt className="text-xs text-slate-500">P. Compra</dt>
+                          <dd>{formatCurrency(s.precioCompra)}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-xs text-slate-500">Cantidad</dt>
+                          <dd>{s.cantidad}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-xs text-slate-500">Total</dt>
+                          <dd className="font-medium">{formatCurrency(s.precioCompra * s.cantidad)}</dd>
+                        </div>
+                      </dl>
+                      <div className="flex justify-end gap-2">
                         <Button size="sm" onClick={() => handleOpenAprobar(s)}>
                           <CheckCircle className="w-3 h-3 mr-1" />
                           Aprobar
@@ -238,11 +281,11 @@ export default function AprobarProductos() {
                           Rechazar
                         </Button>
                       </div>
-                    </TableCell>
-                  </TableRow>
+                    </CardContent>
+                  </Card>
                 ))}
-              </TableBody>
-            </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -253,36 +296,72 @@ export default function AprobarProductos() {
             <CardTitle className="text-lg">Historial</CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Comprador</TableHead>
-                  <TableHead>Producto</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead>P. Venta</TableHead>
-                  <TableHead>Stock Mín</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {historial.slice().reverse().map(s => (
-                  <TableRow key={s.id}>
-                    <TableCell className="text-sm">{formatDate(s.fecha)}</TableCell>
-                    <TableCell>{s.compradorNombre}</TableCell>
-                    <TableCell className="font-medium">{s.nombreProducto}</TableCell>
-                    <TableCell>
-                      {s.estado === 'aprobada' ? (
-                        <Badge className="bg-green-500">Aprobada</Badge>
-                      ) : (
-                        <Badge variant="destructive">Rechazada</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>{s.precioVenta ? formatCurrency(s.precioVenta) : '-'}</TableCell>
-                    <TableCell>{s.stockMinimo ?? '-'}</TableCell>
+            {/* Vista de tabla (escritorio) */}
+            <div className="hidden md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Comprador</TableHead>
+                    <TableHead>Producto</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead>P. Venta</TableHead>
+                    <TableHead>Stock Mín</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {historial.slice().reverse().map(s => (
+                    <TableRow key={s.id}>
+                      <TableCell className="text-sm">{formatDate(s.fecha)}</TableCell>
+                      <TableCell>{s.compradorNombre}</TableCell>
+                      <TableCell className="font-medium">{s.nombreProducto}</TableCell>
+                      <TableCell>
+                        {s.estado === 'aprobada' ? (
+                          <Badge className="bg-green-500">Aprobada</Badge>
+                        ) : (
+                          <Badge variant="destructive">Rechazada</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>{s.precioVenta ? formatCurrency(s.precioVenta) : '-'}</TableCell>
+                      <TableCell>{s.stockMinimo ?? '-'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Vista de tarjetas (móvil) */}
+            <div className="md:hidden space-y-3">
+              {historial.slice().reverse().map(s => (
+                <Card key={s.id} className="p-0">
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{s.nombreProducto}</p>
+                        <p className="text-xs text-slate-500">{formatDate(s.fecha)} · {s.compradorNombre}</p>
+                      </div>
+                      <div className="shrink-0">
+                        {s.estado === 'aprobada' ? (
+                          <Badge className="bg-green-500">Aprobada</Badge>
+                        ) : (
+                          <Badge variant="destructive">Rechazada</Badge>
+                        )}
+                      </div>
+                    </div>
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                      <div className="min-w-0">
+                        <dt className="text-xs text-slate-500">P. Venta</dt>
+                        <dd>{s.precioVenta ? formatCurrency(s.precioVenta) : '-'}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-xs text-slate-500">Stock Mín</dt>
+                        <dd>{s.stockMinimo ?? '-'}</dd>
+                      </div>
+                    </dl>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -295,7 +374,7 @@ export default function AprobarProductos() {
           {selectedSolicitud && (
             <div className="space-y-4">
               <div className="bg-slate-50 p-4 rounded-lg space-y-2">
-                <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                   <div>
                     <p className="text-slate-500">Comprador</p>
                     <p className="font-medium">{selectedSolicitud.compradorNombre}</p>
@@ -309,7 +388,7 @@ export default function AprobarProductos() {
                   <p className="text-slate-500 text-sm">Producto solicitado</p>
                   <p className="font-bold text-lg">{selectedSolicitud.nombreProducto}</p>
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
                   <div>
                     <p className="text-slate-500">Precio Compra</p>
                     <p className="font-medium">{formatCurrency(selectedSolicitud.precioCompra)}</p>
@@ -333,7 +412,7 @@ export default function AprobarProductos() {
 
               <div className="border-t pt-4 space-y-4">
                 <p className="font-medium text-sm text-slate-700">Configurar nuevo producto</p>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Precio de Venta *</Label>
                     <Input

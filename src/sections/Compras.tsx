@@ -18,7 +18,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { 
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
 } from '@/components/ui/table';
-import { useCompras, useCompradores, useProductos, formatCurrency, formatDate } from '@/hooks/supabase/useSupabaseData';
+import { useCompras, useCompradores, useProductos, formatCurrency, formatDate, toFechaLocal } from '@/hooks/supabase/useSupabaseData';
 import type { Compra, DetalleCompra, Comprador, Producto } from '@/types';
 
 export default function Compras() {
@@ -160,7 +160,7 @@ export default function Compras() {
       if (detalles.length === 0 || !selectedComprador) return;
 
       const compra: Omit<Compra, 'id'> = {
-        fecha: new Date().toISOString(),
+        fecha: toFechaLocal(new Date()),
         compradorId: selectedComprador.id,
         compradorNombre: selectedComprador.nombre,
         detalles,
@@ -294,7 +294,8 @@ export default function Compras() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          {/* Vista de tabla (escritorio) */}
+          <div className="hidden md:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -347,6 +348,54 @@ export default function Compras() {
                 )}
               </TableBody>
             </Table>
+          </div>
+
+          {/* Vista de tarjetas (móvil) */}
+          <div className="md:hidden space-y-3">
+            {filteredCompras.length === 0 ? (
+              <p className="text-center py-8 text-slate-500">No se encontraron compras</p>
+            ) : (
+              filteredCompras.slice().reverse().map((compra: Compra) => (
+                <Card key={compra.id} className="p-0">
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{compra.compradorNombre}</p>
+                        <p className="text-xs text-slate-500">#{compra.id.slice(-6)} · {formatDate(compra.fecha)}</p>
+                      </div>
+                      <div className="shrink-0">{getEstadoBadge(compra.estado)}</div>
+                    </div>
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                      <div className="min-w-0">
+                        <dt className="text-xs text-slate-500">Método de Pago</dt>
+                        <dd className="capitalize">{getMetodoPagoLabel(compra.metodoPago)}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-xs text-slate-500">Total</dt>
+                        <dd className="font-medium">{formatCurrency(compra.total)}</dd>
+                      </div>
+                    </dl>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setSelectedCompra(compra)}>
+                        <Eye className="w-4 h-4 mr-1" />
+                        Ver detalle
+                      </Button>
+                      {compra.estado !== 'cancelada' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => cancelarCompra(compra.id, { estado: 'cancelada' })}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          <Trash2 className="w-4 h-4 mr-1" />
+                          Cancelar
+                        </Button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )}
           </div>
         </CardContent>
       </Card>
@@ -566,7 +615,7 @@ export default function Compras() {
           </DialogHeader>
           {selectedCompra && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div>
                   <p className="text-slate-500">Comprador</p>
                   <p className="font-medium">{selectedCompra.compradorNombre}</p>

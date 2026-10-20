@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { 
   LayoutDashboard, Package, ShoppingCart, Users,
-  Receipt, TrendingUp, Settings, Menu, LogOut, ClipboardCheck, Wallet, HandCoins
+  Receipt, TrendingUp, Settings, Menu, LogOut, ClipboardCheck, Wallet, HandCoins, CalendarCheck
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
@@ -27,6 +27,7 @@ import AlertaStock from '@/sections/AlertaStock';
 import HacerCompras from '@/sections/HacerCompras';
 import AprobarProductos from '@/sections/AprobarProductos';
 import Salarios from '@/sections/Salarios';
+import ReporteVentaDiaria from '@/sections/ReporteVentaDiaria';
 import Fiados from '@/sections/Fiados';
 import AvisoFiados from '@/components/AvisoFiados';
 
@@ -49,6 +50,7 @@ const menuItemsJefe: MenuItem[] = [
   { id: 'impuestos', label: 'Impuestos', icon: Receipt },
   { id: 'salarios', label: 'Salarios', icon: Wallet },
   { id: 'reportes', label: 'Reportes', icon: TrendingUp },
+  { id: 'reporteDiario', label: 'Reporte Venta Diaria', icon: CalendarCheck },
   { id: 'configuracion', label: 'Configuración', icon: Settings },
   { id: 'aprobarProductos', label: 'Nuevos Productos', icon: ClipboardCheck },
   { id: 'fiados', label: 'Fiados', icon: HandCoins },
@@ -304,7 +306,9 @@ export default function App() {
   }
 
   const renderSection = () => {
-    switch (activeSection.id) {
+    // 'reporteDiario' existe solo en el menú del jefe; se amplía el tipo del
+    // switch porque Section (src/types) no fue modificado por scope.
+    switch (activeSection.id as Section['id'] | 'reporteDiario') {
       case 'dashboard':
         return user.role === 'jefe' ? <Dashboard onSectionChange={setActiveSection} /> : <Ventas />;
       case 'inventario':
@@ -325,6 +329,8 @@ export default function App() {
         return user.role === 'jefe' ? <Impuestos /> : null;
       case 'reportes':
         return user.role === 'jefe' ? <Reportes initialFilters={activeSection.params} /> : null;
+      case 'reporteDiario':
+        return user.role === 'jefe' ? <ReporteVentaDiaria /> : null;
       case 'configuracion':
         return user.role === 'jefe' ? <Configuracion /> : null;
       case 'alertaStock':

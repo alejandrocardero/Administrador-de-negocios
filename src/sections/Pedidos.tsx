@@ -268,45 +268,109 @@ export default function Pedidos({ user }: PedidosProps) {
                 />
               </div>
             </div>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Producto</TableHead>
-                  <TableHead>Precio</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead className="text-right">Acción</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {productosFiltrados.map(producto => {
-                  const tieneStock = producto.stock > 0;
-                  const tienePedidoPendiente = misPedidosPendientes.some(
-                    p => p.productoId === producto.id
-                  );
+            {/* Vista de tabla (escritorio) */}
+            <div className="hidden md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Producto</TableHead>
+                    <TableHead>Precio</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead className="text-right">Acción</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {productosFiltrados.map(producto => {
+                    const tieneStock = producto.stock > 0;
+                    const tienePedidoPendiente = misPedidosPendientes.some(
+                      p => p.productoId === producto.id
+                    );
 
-                  return (
-                    <TableRow key={producto.id}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{producto.nombre}</p>
+                    return (
+                      <TableRow key={producto.id}>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{producto.nombre}</p>
+                            <p className="text-xs text-muted-foreground">{producto.codigo}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>{formatCurrency(producto.precioVenta)}</TableCell>
+                        <TableCell>
+                          {tieneStock ? (
+                            <Badge variant="default" className="bg-green-500">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Disponible
+                            </Badge>
+                          ) : (
+                            <Badge variant="destructive">
+                              <XCircle className="h-3 w-3 mr-1" />
+                              No disponible
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {tienePedidoPendiente ? (
+                            <Badge variant="outline">Pendiente</Badge>
+                          ) : tieneStock ? (
+                            <Button
+                              size="sm"
+                              onClick={() => {
+                                setSelectedProducto(producto.id);
+                                setCantidad(1);
+                                setNotas('');
+                                setNewPedidoOpen(true);
+                              }}
+                            >
+                              <ShoppingCart className="h-3 w-3 mr-1" />
+                              Pedir
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No disponible</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Vista de tarjetas (móvil) */}
+            <div className="md:hidden space-y-3">
+              {productosFiltrados.map(producto => {
+                const tieneStock = producto.stock > 0;
+                const tienePedidoPendiente = misPedidosPendientes.some(
+                  p => p.productoId === producto.id
+                );
+                return (
+                  <Card key={producto.id} className="p-0">
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{producto.nombre}</p>
                           <p className="text-xs text-muted-foreground">{producto.codigo}</p>
                         </div>
-                      </TableCell>
-                      <TableCell>{formatCurrency(producto.precioVenta)}</TableCell>
-                      <TableCell>
-                        {tieneStock ? (
-                          <Badge variant="default" className="bg-green-500">
-                            <CheckCircle className="h-3 w-3 mr-1" />
-                            Disponible
-                          </Badge>
-                        ) : (
-                          <Badge variant="destructive">
-                            <XCircle className="h-3 w-3 mr-1" />
-                            No disponible
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
+                        <div className="shrink-0">
+                          {tieneStock ? (
+                            <Badge variant="default" className="bg-green-500">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Disponible
+                            </Badge>
+                          ) : (
+                            <Badge variant="destructive">
+                              <XCircle className="h-3 w-3 mr-1" />
+                              No disponible
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">Precio</dt>
+                          <dd>{formatCurrency(producto.precioVenta)}</dd>
+                        </div>
+                      </dl>
+                      <div className="flex justify-end">
                         {tienePedidoPendiente ? (
                           <Badge variant="outline">Pendiente</Badge>
                         ) : tieneStock ? (
@@ -325,12 +389,12 @@ export default function Pedidos({ user }: PedidosProps) {
                         ) : (
                           <span className="text-xs text-muted-foreground">No disponible</span>
                         )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
           </CardContent>
         </Card>
 
@@ -346,36 +410,70 @@ export default function Pedidos({ user }: PedidosProps) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Fecha</TableHead>
-                    <TableHead>Producto</TableHead>
-                    <TableHead>Cantidad Aprobada</TableHead>
-                    <TableHead className="text-right">Acción</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {misPedidosAprobados.map(pedido => (
-                    <TableRow key={pedido.id}>
-                      <TableCell>
-                        {format(new Date(pedido.fecha), 'PPP', { locale: es })}
-                      </TableCell>
-                      <TableCell>{pedido.productoNombre}</TableCell>
-                      <TableCell className="font-bold text-amber-600">{pedido.cantidadEntregada || pedido.cantidad}</TableCell>
-                      <TableCell className="text-right">
-                        <Button 
-                          size="sm" 
+              {/* Vista de tabla (escritorio) */}
+              <div className="hidden md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Producto</TableHead>
+                      <TableHead>Cantidad Aprobada</TableHead>
+                      <TableHead className="text-right">Acción</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {misPedidosAprobados.map(pedido => (
+                      <TableRow key={pedido.id}>
+                        <TableCell>
+                          {format(new Date(pedido.fecha), 'PPP', { locale: es })}
+                        </TableCell>
+                        <TableCell>{pedido.productoNombre}</TableCell>
+                        <TableCell className="font-bold text-amber-600">{pedido.cantidadEntregada || pedido.cantidad}</TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            onClick={() => handleConfirmarRecibido(pedido)}
+                          >
+                            <FileCheck className="h-3 w-3 mr-1" />
+                            Confirmar Recepción
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Vista de tarjetas (móvil) */}
+              <div className="md:hidden space-y-3">
+                {misPedidosAprobados.map(pedido => (
+                  <Card key={pedido.id} className="p-0">
+                    <CardContent className="p-4 space-y-3">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{pedido.productoNombre}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {format(new Date(pedido.fecha), 'PPP', { locale: es })}
+                        </p>
+                      </div>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">Cantidad Aprobada</dt>
+                          <dd className="font-bold text-amber-600">{pedido.cantidadEntregada || pedido.cantidad}</dd>
+                        </div>
+                      </dl>
+                      <div className="flex justify-end">
+                        <Button
+                          size="sm"
                           onClick={() => handleConfirmarRecibido(pedido)}
                         >
                           <FileCheck className="h-3 w-3 mr-1" />
                           Confirmar Recepción
                         </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </CardContent>
           </Card>
         )}
@@ -392,30 +490,60 @@ export default function Pedidos({ user }: PedidosProps) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Fecha</TableHead>
-                    <TableHead>Producto</TableHead>
-                    <TableHead>Cantidad Solicitada</TableHead>
-                    <TableHead>Estado</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {misPedidosPendientes.map(pedido => (
-                    <TableRow key={pedido.id}>
-                      <TableCell>
-                        {format(new Date(pedido.fecha), 'PPP', { locale: es })}
-                      </TableCell>
-                      <TableCell>{pedido.productoNombre}</TableCell>
-                      <TableCell className="font-bold">{pedido.cantidad}</TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">Pendiente</Badge>
-                      </TableCell>
+              {/* Vista de tabla (escritorio) */}
+              <div className="hidden md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Producto</TableHead>
+                      <TableHead>Cantidad Solicitada</TableHead>
+                      <TableHead>Estado</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {misPedidosPendientes.map(pedido => (
+                      <TableRow key={pedido.id}>
+                        <TableCell>
+                          {format(new Date(pedido.fecha), 'PPP', { locale: es })}
+                        </TableCell>
+                        <TableCell>{pedido.productoNombre}</TableCell>
+                        <TableCell className="font-bold">{pedido.cantidad}</TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">Pendiente</Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Vista de tarjetas (móvil) */}
+              <div className="md:hidden space-y-3">
+                {misPedidosPendientes.map(pedido => (
+                  <Card key={pedido.id} className="p-0">
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{pedido.productoNombre}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {format(new Date(pedido.fecha), 'PPP', { locale: es })}
+                          </p>
+                        </div>
+                        <div className="shrink-0">
+                          <Badge variant="secondary">Pendiente</Badge>
+                        </div>
+                      </div>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">Cantidad Solicitada</dt>
+                          <dd className="font-bold">{pedido.cantidad}</dd>
+                        </div>
+                      </dl>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </CardContent>
           </Card>
         )}
@@ -426,34 +554,68 @@ export default function Pedidos({ user }: PedidosProps) {
               <CardTitle>Historial de Pedidos</CardTitle>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Fecha</TableHead>
-                    <TableHead>Producto</TableHead>
-                    <TableHead>Cantidad</TableHead>
-                    <TableHead>Estado</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {misPedidosHistorial.map(pedido => (
-                    <TableRow key={pedido.id}>
-                      <TableCell>
-                        {format(new Date(pedido.fecha), 'PPP', { locale: es })}
-                      </TableCell>
-                      <TableCell>{pedido.productoNombre}</TableCell>
-                      <TableCell>{pedido.cantidadEntregada || pedido.cantidad}</TableCell>
-                      <TableCell>
-                        <Badge 
-                          variant={pedido.estado === 'entregado' ? 'default' : pedido.estado === 'cancelado' ? 'destructive' : 'secondary'}
-                        >
-                          {pedido.estado}
-                        </Badge>
-                      </TableCell>
+              {/* Vista de tabla (escritorio) */}
+              <div className="hidden md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Producto</TableHead>
+                      <TableHead>Cantidad</TableHead>
+                      <TableHead>Estado</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {misPedidosHistorial.map(pedido => (
+                      <TableRow key={pedido.id}>
+                        <TableCell>
+                          {format(new Date(pedido.fecha), 'PPP', { locale: es })}
+                        </TableCell>
+                        <TableCell>{pedido.productoNombre}</TableCell>
+                        <TableCell>{pedido.cantidadEntregada || pedido.cantidad}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={pedido.estado === 'entregado' ? 'default' : pedido.estado === 'cancelado' ? 'destructive' : 'secondary'}
+                          >
+                            {pedido.estado}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Vista de tarjetas (móvil) */}
+              <div className="md:hidden space-y-3">
+                {misPedidosHistorial.map(pedido => (
+                  <Card key={pedido.id} className="p-0">
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{pedido.productoNombre}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {format(new Date(pedido.fecha), 'PPP', { locale: es })}
+                          </p>
+                        </div>
+                        <div className="shrink-0">
+                          <Badge
+                            variant={pedido.estado === 'entregado' ? 'default' : pedido.estado === 'cancelado' ? 'destructive' : 'secondary'}
+                          >
+                            {pedido.estado}
+                          </Badge>
+                        </div>
+                      </div>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">Cantidad</dt>
+                          <dd>{pedido.cantidadEntregada || pedido.cantidad}</dd>
+                        </div>
+                      </dl>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </CardContent>
           </Card>
         )}
@@ -600,48 +762,92 @@ export default function Pedidos({ user }: PedidosProps) {
               No hay pedidos pendientes
             </p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Vendedor</TableHead>
-                  <TableHead>Producto</TableHead>
-                  <TableHead>Cantidad Solicitada</TableHead>
-                  <TableHead className="text-right">Acción</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pedidosPendientesAdmin.map(pedido => (
-                  <TableRow key={pedido.id}>
-                    <TableCell>
-                      {format(new Date(pedido.fecha), 'PPP', { locale: es })}
-                    </TableCell>
-                    <TableCell>{pedido.vendedorNombre}</TableCell>
-                    <TableCell>{pedido.productoNombre}</TableCell>
-                    <TableCell className="font-bold">{pedido.cantidad}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex gap-2 justify-end">
-                        <Button 
-                          size="sm" 
-                          onClick={() => handleAceptarPedido(pedido)}
-                        >
-                          <CheckCircle className="h-3 w-3 mr-1" />
-                          Procesar
-                        </Button>
-                        <Button 
-                          size="sm" 
-                          variant="destructive"
-                          onClick={() => handleRechazar(pedido.id)}
-                        >
-                          <XCircle className="h-3 w-3 mr-1" />
-                          Rechazar
-                        </Button>
-                      </div>
-                    </TableCell>
+            <>
+            {/* Vista de tabla (escritorio) */}
+            <div className="hidden md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Vendedor</TableHead>
+                    <TableHead>Producto</TableHead>
+                    <TableHead>Cantidad Solicitada</TableHead>
+                    <TableHead className="text-right">Acción</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {pedidosPendientesAdmin.map(pedido => (
+                    <TableRow key={pedido.id}>
+                      <TableCell>
+                        {format(new Date(pedido.fecha), 'PPP', { locale: es })}
+                      </TableCell>
+                      <TableCell>{pedido.vendedorNombre}</TableCell>
+                      <TableCell>{pedido.productoNombre}</TableCell>
+                      <TableCell className="font-bold">{pedido.cantidad}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex gap-2 justify-end">
+                          <Button
+                            size="sm"
+                            onClick={() => handleAceptarPedido(pedido)}
+                          >
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            Procesar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleRechazar(pedido.id)}
+                          >
+                            <XCircle className="h-3 w-3 mr-1" />
+                            Rechazar
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Vista de tarjetas (móvil) */}
+            <div className="md:hidden space-y-3">
+              {pedidosPendientesAdmin.map(pedido => (
+                <Card key={pedido.id} className="p-0">
+                  <CardContent className="p-4 space-y-3">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{pedido.productoNombre}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {pedido.vendedorNombre} · {format(new Date(pedido.fecha), 'PPP', { locale: es })}
+                      </p>
+                    </div>
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                      <div className="min-w-0">
+                        <dt className="text-xs text-muted-foreground">Cantidad Solicitada</dt>
+                        <dd className="font-bold">{pedido.cantidad}</dd>
+                      </div>
+                    </dl>
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => handleAceptarPedido(pedido)}
+                      >
+                        <CheckCircle className="h-3 w-3 mr-1" />
+                        Procesar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => handleRechazar(pedido.id)}
+                      >
+                        <XCircle className="h-3 w-3 mr-1" />
+                        Rechazar
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -656,34 +862,64 @@ export default function Pedidos({ user }: PedidosProps) {
               No hay pedidos procesados
             </p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Vendedor</TableHead>
-                  <TableHead>Producto</TableHead>
-                  <TableHead>Estado</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pedidosProcesadosAdmin.map(pedido => (
-                  <TableRow key={pedido.id}>
-                    <TableCell>
-                      {format(new Date(pedido.fecha), 'PPP', { locale: es })}
-                    </TableCell>
-                    <TableCell>{pedido.vendedorNombre}</TableCell>
-                    <TableCell>{pedido.productoNombre}</TableCell>
-                    <TableCell>
-                      <Badge 
-                        variant={pedido.estado === 'entregado' ? 'default' : pedido.estado === 'cancelado' ? 'destructive' : 'secondary'}
-                      >
-                        {pedido.estado}
-                      </Badge>
-                    </TableCell>
+            <>
+            {/* Vista de tabla (escritorio) */}
+            <div className="hidden md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Vendedor</TableHead>
+                    <TableHead>Producto</TableHead>
+                    <TableHead>Estado</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {pedidosProcesadosAdmin.map(pedido => (
+                    <TableRow key={pedido.id}>
+                      <TableCell>
+                        {format(new Date(pedido.fecha), 'PPP', { locale: es })}
+                      </TableCell>
+                      <TableCell>{pedido.vendedorNombre}</TableCell>
+                      <TableCell>{pedido.productoNombre}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={pedido.estado === 'entregado' ? 'default' : pedido.estado === 'cancelado' ? 'destructive' : 'secondary'}
+                        >
+                          {pedido.estado}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Vista de tarjetas (móvil) */}
+            <div className="md:hidden space-y-3">
+              {pedidosProcesadosAdmin.map(pedido => (
+                <Card key={pedido.id} className="p-0">
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{pedido.productoNombre}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {pedido.vendedorNombre} · {format(new Date(pedido.fecha), 'PPP', { locale: es })}
+                        </p>
+                      </div>
+                      <div className="shrink-0">
+                        <Badge
+                          variant={pedido.estado === 'entregado' ? 'default' : pedido.estado === 'cancelado' ? 'destructive' : 'secondary'}
+                        >
+                          {pedido.estado}
+                        </Badge>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            </>
           )}
         </CardContent>
       </Card>

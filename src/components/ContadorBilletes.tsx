@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,14 +20,20 @@ interface ContadorBilletesProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirmar: (total: number) => void;
+  /** Desglose previo por denominación: se restaura al reabrir (Bug 3). */
+  initialCantidades?: Record<number, number>;
+  /** Notifica cada cambio al padre para que el conteo sobreviva al cierre. */
+  onCantidadesChange?: (cantidades: Record<number, number>) => void;
 }
 
-export default function ContadorBilletes({ open, onOpenChange, onConfirmar }: ContadorBilletesProps) {
-  const [cantidades, setCantidades] = useState<Record<number, number>>({});
+export default function ContadorBilletes({ open, onOpenChange, onConfirmar, initialCantidades, onCantidadesChange }: ContadorBilletesProps) {
+  const [cantidades, setCantidades] = useState<Record<number, number>>(initialCantidades || {});
 
   const handleCantidadChange = (valor: number, cantidad: string) => {
     const cant = parseInt(cantidad) || 0;
-    setCantidades(prev => ({ ...prev, [valor]: cant }));
+    const nuevas = { ...cantidades, [valor]: cant };
+    setCantidades(nuevas);
+    onCantidadesChange?.(nuevas);
   };
 
   const totalCalculado = DENOMINACIONES.reduce((sum, d) => {
@@ -36,20 +42,15 @@ export default function ContadorBilletes({ open, onOpenChange, onConfirmar }: Co
 
   const handleConfirmar = () => {
     onConfirmar(totalCalculado);
-    setCantidades({});
+    // El desglose se CONSERVA en el padre: reabrir permite corregir billetes
+    // tras un error. Solo se limpia con "Limpiar" o al guardar la venta.
     onOpenChange(false);
   };
 
   const handleLimpiar = () => {
     setCantidades({});
+    onCantidadesChange?.({});
   };
-
-  useEffect(() => {
-    if (!open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setCantidades({});
-    }
-  }, [open]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

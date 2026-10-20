@@ -218,6 +218,7 @@ export interface Database {
           monto_transferencia: number
           total_vendido: number
           salario_calculado: number
+          diferencia_caja: number | null
           notas: string | null
           created_at: string
           updated_at: string
@@ -231,6 +232,7 @@ export interface Database {
           monto_efectivo: number
           monto_transferencia: number
           salario_calculado: number
+          diferencia_caja?: number | null
           notas?: string | null
           created_at?: string
           updated_at?: string
@@ -244,6 +246,7 @@ export interface Database {
           monto_efectivo?: number
           monto_transferencia?: number
           salario_calculado?: number
+          diferencia_caja?: number | null
           notas?: string | null
           created_at?: string
           updated_at?: string
@@ -367,7 +370,7 @@ export interface Database {
           id: string
           business_id: string
           nombre: string
-          tipo: 'iva' | 'renta' | 'ica' | 'otro'
+          tipo: 'iva' | 'renta' | 'ica' | 'otro' | 'onat' | 'deposito_bancario'
           periodo: string
           fecha_vencimiento: string
           monto: number
@@ -381,7 +384,7 @@ export interface Database {
           id?: string
           business_id: string
           nombre: string
-          tipo: 'iva' | 'renta' | 'ica' | 'otro'
+          tipo: 'iva' | 'renta' | 'ica' | 'otro' | 'onat' | 'deposito_bancario'
           periodo: string
           fecha_vencimiento: string
           monto: number
@@ -395,7 +398,7 @@ export interface Database {
           id?: string
           business_id?: string
           nombre?: string
-          tipo?: 'iva' | 'renta' | 'ica' | 'otro'
+          tipo?: 'iva' | 'renta' | 'ica' | 'otro' | 'onat' | 'deposito_bancario'
           periodo?: string
           fecha_vencimiento?: string
           monto?: number

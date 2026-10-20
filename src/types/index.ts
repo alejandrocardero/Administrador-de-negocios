@@ -100,6 +100,7 @@ export interface VentaDiaria {
   montoTransferencia: number;
   totalVendido: number;
   salarioCalculado: number;
+  diferenciaCaja?: number | null;
   notas?: string;
 }
 
@@ -153,7 +154,7 @@ export interface Gasto {
 export interface Impuesto {
   id: string;
   nombre: string;
-  tipo: 'iva' | 'renta' | 'ica' | 'otro';
+  tipo: 'iva' | 'renta' | 'ica' | 'otro' | 'onat' | 'deposito_bancario';
   periodo: string;
   fechaVencimiento: string;
   monto: number;

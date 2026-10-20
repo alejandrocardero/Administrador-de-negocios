@@ -18,6 +18,10 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
 } from '@/components/ui/table';
 import { useProductos, useProductRotation, formatCurrency } from '@/hooks/supabase/useSupabaseData';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  margen, formatMargen, precioDesdeMargen, margenDesdePrecio, clampMargen, MARGEN_MAX
+} from '@/lib/ganancia';
 import type { Producto, CategoriaProducto, ProductRotationStats } from '@/types';
 
 const categorias: { value: CategoriaProducto; label: string }[] = [
@@ -42,6 +46,9 @@ export default function Inventario() {
     getTopByRotation 
   } = useProductRotation();
 
+  const { user } = useAuth();
+  const esJefe = user?.role === 'jefe';
+
   const [searchQuery, setSearchQuery] = useState('');
   const [categoriaFilter, setCategoriaFilter] = useState<string>('todas');
   const [showBajoStock, setShowBajoStock] = useState(false);
@@ -54,6 +61,7 @@ export default function Inventario() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const [margenTopado, setMargenTopado] = useState(false);
 
   const [formData, setFormData] = useState({
     codigo: '',
@@ -136,6 +144,7 @@ export default function Inventario() {
     }
     setDialogOpen(true);
     setFormErrors({});
+    setMargenTopado(false);
   };
 
   function updateField<K extends keyof typeof formData>(key: K, value: (typeof formData)[K]) {
@@ -146,6 +155,44 @@ export default function Inventario() {
       delete next[key];
       return next;
     });
+  }
+
+  // ----- Ganancia deseada (%) ↔ Precio de Venta (bidireccional) -----
+  // Fórmula del usuario: PV = PC / (1 − %/100) (margen sobre el precio de venta).
+  // Con % vacío o 0 el precio de venta queda editable libre.
+  function handleGananciaChange(raw: string) {
+    const pctRaw = parseFloat(raw);
+    setMargenTopado(!Number.isNaN(pctRaw) && pctRaw > MARGEN_MAX);
+    if (raw.trim() === '' || Number.isNaN(pctRaw) || pctRaw <= 0) {
+      updateField('porcentajeGanancia', raw);
+      return;
+    }
+    const pct = clampMargen(pctRaw);
+    const pc = parseFloat(formData.precioCompra);
+    updateField('porcentajeGanancia', String(pct));
+    if (!Number.isNaN(pc) && pc > 0) {
+      updateField('precioVenta', String(precioDesdeMargen(pc, pct)));
+    }
+  }
+
+  function handlePrecioVentaChange(raw: string) {
+    updateField('precioVenta', raw);
+    const pc = parseFloat(formData.precioCompra);
+    const pv = parseFloat(raw);
+    const pct = (!Number.isNaN(pc) && !Number.isNaN(pv) && pv > 0)
+      ? margenDesdePrecio(pc, pv)
+      : null;
+    updateField('porcentajeGanancia', pct !== null ? String(pct) : '');
+  }
+
+  function handlePrecioCompraChange(raw: string) {
+    updateField('precioCompra', raw);
+    const pct = parseFloat(formData.porcentajeGanancia);
+    const pc = parseFloat(raw);
+    // Al cambiar el costo se recalcula el PV para mantener la ganancia deseada.
+    if (!Number.isNaN(pct) && pct > 0 && !Number.isNaN(pc) && pc > 0) {
+      updateField('precioVenta', String(precioDesdeMargen(pc, pct)));
+    }
   }
 
   const handleSave = async () => {
@@ -244,6 +291,21 @@ export default function Inventario() {
     return categorias.find(c => c.value === cat)?.label || cat;
   };
 
+  // Badge del margen real (PV − PC)/PV × 100: verde ≥30 %, amarillo 15–30 %, rojo <15 %.
+  const getGananciaBadge = (precioVenta: number, precioCompra: number) => {
+    const pct = margen(precioVenta, precioCompra);
+    if (pct === null) {
+      return <Badge variant="secondary" className="bg-slate-100 text-slate-500">—</Badge>;
+    }
+    if (pct >= 30) {
+      return <Badge variant="default" className="bg-green-500">{formatMargen(pct)}</Badge>;
+    }
+    if (pct >= 15) {
+      return <Badge variant="default" className="bg-yellow-500">{formatMargen(pct)}</Badge>;
+    }
+    return <Badge variant="destructive">{formatMargen(pct)}</Badge>;
+  };
+
   const totalInventario = productos.reduce((sum, p) => sum + (p.precioCompra * p.stock), 0);
   const productosAgotados = productos.filter(p => p.stock <= 0).length;
   const productosBajoStock = getProductosBajoStock().length;
@@ -268,7 +330,7 @@ export default function Inventario() {
   };
 
   const getLeaderCardStats = (rot: ProductRotationStats) => (
-    <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-lg">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-50 rounded-lg">
       <div className="min-w-0">
         <p className="text-xs text-slate-500">Vendidos (Sem/Mes/Total)</p>
         <p className="text-sm font-medium">{rot.vendidoSemana} / {rot.vendidoMes} / {rot.totalVendido}</p>
@@ -457,6 +519,7 @@ export default function Inventario() {
                       <>
                         <TableHead className="text-right">P. Compra</TableHead>
                         <TableHead className="text-right">P. Venta</TableHead>
+                        {esJefe && <TableHead className="text-right">% Ganancia</TableHead>}
                         <TableHead className="text-right">Stock</TableHead>
                         <TableHead>Estado</TableHead>
                       </>
@@ -467,7 +530,7 @@ export default function Inventario() {
                 <TableBody>
                   {productsForTable.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={viewMode === 'rotacion' ? 9 : 8} className="text-center py-8 text-slate-500">
+                      <TableCell colSpan={viewMode === 'rotacion' ? 9 : (esJefe ? 9 : 8)} className="text-center py-8 text-slate-500">
                         {rotationLoading 
                           ? 'Cargando datos de rotación...' 
                           : viewMode === 'rotacion' 
@@ -489,6 +552,11 @@ export default function Inventario() {
                           <>
                             <TableCell className="text-right">{formatCurrency(producto.precioCompra)}</TableCell>
                             <TableCell className="text-right">{formatCurrency(producto.precioVenta)}</TableCell>
+                            {esJefe && (
+                              <TableCell className="text-right">
+                                {getGananciaBadge(producto.precioVenta, producto.precioCompra)}
+                              </TableCell>
+                            )}
                             <TableCell className="text-right">
                               {producto.stock} {producto.unidad}
                             </TableCell>
@@ -598,10 +666,28 @@ export default function Inventario() {
                 id="precioCompra"
                 type="number"
                 value={formData.precioCompra}
-                onChange={(e) => updateField('precioCompra', e.target.value)}
+                onChange={(e) => handlePrecioCompraChange(e.target.value)}
                 placeholder="0"
               />
               {formErrors.precioCompra && <p className="text-sm text-red-600">{formErrors.precioCompra}</p>}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="porcentajeGanancia">Ganancia deseada (%)</Label>
+              <Input
+                id="porcentajeGanancia"
+                type="number"
+                inputMode="decimal"
+                min="0"
+                max={MARGEN_MAX}
+                value={formData.porcentajeGanancia}
+                onChange={(e) => handleGananciaChange(e.target.value)}
+                placeholder="Ej: 25"
+              />
+              {margenTopado && <p className="text-sm text-amber-600">Máximo {MARGEN_MAX} %</p>}
+              <p className="text-xs text-slate-500">
+                Con un % definido, el precio de venta se calcula como PC / (1 − %/100).
+                Déjelo vacío o en 0 para editarlo libremente.
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="precioVenta">Precio de Venta *</Label>
@@ -609,7 +695,7 @@ export default function Inventario() {
                 id="precioVenta"
                 type="number"
                 value={formData.precioVenta}
-                onChange={(e) => updateField('precioVenta', e.target.value)}
+                onChange={(e) => handlePrecioVentaChange(e.target.value)}
                 placeholder="0"
               />
               {formErrors.precioVenta && <p className="text-sm text-red-600">{formErrors.precioVenta}</p>}

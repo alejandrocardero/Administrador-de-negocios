@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { AlertTriangle, Loader2 } from 'lucide-react';
-import { useFiados, formatCurrency, formatDate } from '@/hooks/supabase/useSupabaseData';
+import { useFiados, formatCurrency, formatDate, toFechaLocal } from '@/hooks/supabase/useSupabaseData';
 
 interface AvisoFiadosProps {
   onCobrado?: () => void;
@@ -34,7 +34,7 @@ export default function AvisoFiados({ onCobrado }: AvisoFiadosProps) {
     
     const force = sessionStorage.getItem('avisoFiadosForce') === '1';
     const lastShown = localStorage.getItem('avisoFiadosFecha');
-    const hoy = new Date().toISOString().split('T')[0];
+    const hoy = toFechaLocal(new Date());
     const hayPendientes = pendientes.length > 0;
 
     if (hayPendientes && (force || lastShown !== hoy)) {
@@ -68,7 +68,7 @@ export default function AvisoFiados({ onCobrado }: AvisoFiadosProps) {
   };
 
   const handleClose = () => {
-    const hoy = new Date().toISOString().split('T')[0];
+    const hoy = toFechaLocal(new Date());
     localStorage.setItem('avisoFiadosFecha', hoy);
     setIsOpen(false);
   };

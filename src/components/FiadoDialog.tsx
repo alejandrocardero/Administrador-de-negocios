@@ -8,7 +8,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger as PopoverTriggerRoot } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CalendarIcon, Loader2 } from 'lucide-react';
-import { useVendedores } from '@/hooks/supabase/useSupabaseData';
+import { useVendedores, toFechaLocal } from '@/hooks/supabase/useSupabaseData';
 import type { Fiado } from '@/types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -24,7 +24,7 @@ interface FiadoDialogProps {
 export default function FiadoDialog({ open, onOpenChange, onSave, defaultVendedorId }: FiadoDialogProps) {
   const { vendedores } = useVendedores();
   const [formData, setFormData] = useState<Omit<Fiado, 'id' | 'estado' | 'vendedorNombre'>>({
-    fecha: new Date().toISOString(),
+    fecha: toFechaLocal(new Date()),
     clienteNombre: '',
     vendedorId: defaultVendedorId || '',
     monto: 0,
@@ -45,7 +45,7 @@ export default function FiadoDialog({ open, onOpenChange, onSave, defaultVendedo
         ...prev,
         vendedorId: defaultVendedorId || prev.vendedorId,
         vendedorNombre: vendedores.find(v => v.id === defaultVendedorId)?.nombre || '',
-        fecha: new Date().toISOString(),
+        fecha: toFechaLocal(new Date()),
       }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -64,7 +64,7 @@ export default function FiadoDialog({ open, onOpenChange, onSave, defaultVendedo
       await Promise.resolve(onSave({ ...formData, vendedorNombre } as Omit<Fiado, 'id' | 'estado'>));
       onOpenChange(false);
       setFormData({
-        fecha: new Date().toISOString(),
+        fecha: toFechaLocal(new Date()),
         clienteNombre: '',
         vendedorId: defaultVendedorId || '',
         monto: 0,
@@ -127,7 +127,7 @@ export default function FiadoDialog({ open, onOpenChange, onSave, defaultVendedo
                 <Calendar
                   mode="single"
                   selected={formData.fecha ? new Date(formData.fecha) : undefined}
-                  onSelect={(date) => date && handleChange('fecha', date.toISOString())}
+                  onSelect={(date) => date && handleChange('fecha', toFechaLocal(date))}
                   initialFocus
                 />
               </PopoverContent>
@@ -140,7 +140,7 @@ export default function FiadoDialog({ open, onOpenChange, onSave, defaultVendedo
               id="monto"
               type="number"
               min="1"
-              step="100"
+              step="any"
               value={formData.monto}
               onChange={(e) => handleChange('monto', parseFloat(e.target.value) || 0)}
               placeholder="0"

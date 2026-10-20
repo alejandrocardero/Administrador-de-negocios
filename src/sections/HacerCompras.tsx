@@ -15,7 +15,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
-import { useCompras, useCompradores, useProductos, formatCurrency, formatDate } from '@/hooks/supabase/useSupabaseData';
+import { useCompras, useCompradores, useProductos, formatCurrency, formatDate, toFechaLocal } from '@/hooks/supabase/useSupabaseData';
 import type { Compra, DetalleCompra, Comprador, Producto } from '@/types';
 
 export default function HacerCompras() {
@@ -134,7 +134,7 @@ export default function HacerCompras() {
       if (detalles.length === 0 || !selectedComprador) return;
 
       const nuevaCompra: Omit<Compra, 'id'> = {
-        fecha: new Date().toISOString(),
+        fecha: toFechaLocal(new Date()),
         compradorId: selectedComprador.id,
         compradorNombre: selectedComprador.nombre,
         detalles,
@@ -395,7 +395,7 @@ export default function HacerCompras() {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="metodoPago">Método de Pago</Label>
                 <Select value={metodoPago} onValueChange={(v) => setMetodoPago(v as Compra['metodoPago'])}>
@@ -435,7 +435,7 @@ export default function HacerCompras() {
               <DialogTitle>Detalle de Compra</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div><p className="text-slate-500">Fecha</p><p>{formatDate(selectedCompra.fecha)}</p></div>
                 <div><p className="text-slate-500">Comprador</p><p>{selectedCompra.compradorNombre}</p></div>
                 <div><p className="text-slate-500">Método</p><p className="capitalize">{getMetodoPagoLabel(selectedCompra.metodoPago)}</p></div>

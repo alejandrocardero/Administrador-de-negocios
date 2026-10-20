@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
@@ -25,7 +26,7 @@ import {
   Popover, PopoverContent, PopoverTrigger as PopoverTriggerRoot
 } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
-import { useVentasDiarias, useVendedores, useFiados, formatCurrency, formatDate } from '@/hooks/supabase/useSupabaseData';
+import { useVentasDiarias, useVendedores, useFiados, useRegistrosIPVE, formatCurrency, formatDate, toFechaLocal } from '@/hooks/supabase/useSupabaseData';
 import { useAuth } from '@/contexts/AuthContext';
 import type { VentaDiaria, Vendedor } from '@/types';
 import { cn } from '@/lib/utils';
@@ -204,12 +205,25 @@ export default function Ventas() {
     create: agregarFiado 
   } = useFiados();
   
+  const { data: registrosIpve } = useRegistrosIPVE();
+
+  // Importe IPVE (tipo historico) del vendedor para una fecha local dada.
+  // null = sin IPVE registrado ese día (no hay con qué comparar el cierre).
+  const ipveImporteDelDia = (vendedorId: string, fechaLocal: string): number | null => {
+    const regs = registrosIpve.filter(r =>
+      r.fecha === fechaLocal && r.vendedorId === vendedorId && r.tipo === 'historico'
+    );
+    if (regs.length === 0) return null;
+    return regs.reduce((sum, r) => sum + (r.inicio + r.entrada - r.final) * r.precioVenta, 0);
+  };
+  
   const [editingVenta, setEditingVenta] = useState<VentaDiaria | null>(null);
   const [deleteVenta, setDeleteVenta] = useState<VentaDiaria | null>(null);
   const [historialIpveOpen, setHistorialIpveOpen] = useState(false);
   const [ipveDiarioOpen, setIpveDiarioOpen] = useState(false);
   const [contadorOpen, setContadorOpen] = useState(false);
   const [contadorConfirmado, setContadorConfirmado] = useState<number | null>(null);
+  const [contadorBilletes, setContadorBilletes] = useState<Record<number, number>>({});
   const [confirmVenta, setConfirmVenta] = useState<NuevoRegistro | null>(null);
   const [fiadoDialogOpen, setFiadoDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -236,12 +250,21 @@ const handleConfirmVenta = async () => {
       const vendedor = vendedores.find(v => v.id === confirmVenta.vendedorId);
       if (!vendedor) return;
 
+      // Fecha local (Bug 5) + sobrante/faltante vs IPVE del vendedor (Bugs 2 y 4)
+      const fechaLocal = toFechaLocal(confirmVenta.fecha);
+      const ipve = ipveImporteDelDia(confirmVenta.vendedorId, fechaLocal);
+      const diferenciaCaja = ipve === null
+        ? null
+        : (confirmVenta.montoEfectivo + confirmVenta.montoTransferencia) - ipve;
+
       await agregarVentaDiaria({
         ...confirmVenta,
-        fecha: confirmVenta.fecha.toISOString(),
+        fecha: fechaLocal,
         vendedorNombre: vendedor.nombre,
+        diferenciaCaja,
       });
       setContadorConfirmado(null);
+      setContadorBilletes({});
       setConfirmVenta(null);
     } catch (error) {
       console.error('Error guardando venta:', error);
@@ -258,10 +281,17 @@ const handleConfirmVenta = async () => {
     if (!vendedor) return;
     
     try {
+      const fechaLocal = toFechaLocal(data.fecha);
+      const ipve = ipveImporteDelDia(data.vendedorId, fechaLocal);
+      const diferenciaCaja = ipve === null
+        ? null
+        : (data.montoEfectivo + data.montoTransferencia) - ipve;
+
       await actualizarVentaDiaria(editingVenta.id, {
           ...data,
-          fecha: data.fecha.toISOString(),
+          fecha: fechaLocal,
           vendedorNombre: vendedor.nombre,
+          diferenciaCaja,
       });
       setEditingVenta(null);
     } catch (error) {
@@ -282,13 +312,25 @@ const handleConfirmVenta = async () => {
     }
   }
 
-  const totalVentasHoy = useMemo(() => {
-      const hoy = new Date().toDateString();
-      return ventas
-        .filter(v => new Date(v.fecha).toDateString() === hoy)
-        .reduce((sum, v) => sum + v.totalVendido, 0);
+  const ventasHoy = useMemo(() => {
+      const hoyLocal = toFechaLocal(new Date());
+      return ventas.filter(v => v.fecha === hoyLocal);
   }, [ventas]);
-  
+
+  const totalVentasHoy = useMemo(() => {
+      return ventasHoy.reduce((sum, v) => sum + v.totalVendido, 0);
+  }, [ventasHoy]);
+
+  // Vista previa del cierre para el diálogo de confirmación (antes de guardar)
+  const confirmacionCierre = useMemo(() => {
+    if (!confirmVenta) return null;
+    const fechaLocal = toFechaLocal(confirmVenta.fecha);
+    const ipve = ipveImporteDelDia(confirmVenta.vendedorId, fechaLocal);
+    if (ipve === null) return { ipve: null, diferencia: null };
+    const diferencia = (confirmVenta.montoEfectivo + confirmVenta.montoTransferencia) - ipve;
+    return { ipve, diferencia };
+  }, [confirmVenta, registrosIpve]);
+
   const totalSalariosHoy = useMemo(() => {
     const hoy = new Date().toDateString();
     return ventas
@@ -321,9 +363,9 @@ const handleConfirmVenta = async () => {
       </div>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle>IPVE - Inventario de Productos en Venta</CardTitle>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button onClick={() => setIpveDiarioOpen(true)}>
               <FileSpreadsheet className="w-4 h-4 mr-2" />
               IPVE Diario
@@ -357,49 +399,130 @@ const handleConfirmVenta = async () => {
           <CardTitle>Historial de Ventas Diarias</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Vendedor</TableHead>
-                <TableHead>Monto Efectivo</TableHead>
-                <TableHead>Monto Transferencia</TableHead>
-                <TableHead>Total Vendido</TableHead>
-                <TableHead>Salario del Día</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sortedVentas.map(venta => (
-                <TableRow key={venta.id}>
-                  <TableCell>{formatDate(venta.fecha)}</TableCell>
-                  <TableCell>{venta.vendedorNombre}</TableCell>
-                  <TableCell>{formatCurrency(venta.montoEfectivo)}</TableCell>
-                  <TableCell>{formatCurrency(venta.montoTransferencia)}</TableCell>
-                  <TableCell className="font-bold">{formatCurrency(venta.totalVendido)}</TableCell>
-                  <TableCell className="text-green-600 font-bold">{formatCurrency(venta.salarioCalculado)}</TableCell>
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="h-8 w-8 p-0">
-                          <span className="sr-only">Abrir menú</span>
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setEditingVenta(venta)}>
-                          <Edit className="mr-2 h-4 w-4" /> Editar
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-500" onClick={() => setDeleteVenta(venta)}>
-                          <Trash className="mr-2 h-4 w-4" /> Eliminar
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
+          {/* Vista de tabla (escritorio) */}
+          <div className="hidden md:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Vendedor</TableHead>
+                  <TableHead>Monto Efectivo</TableHead>
+                  <TableHead>Monto Transferencia</TableHead>
+                  <TableHead>Total Vendido</TableHead>
+                  <TableHead>Salario del Día</TableHead>
+                  <TableHead>Diferencia</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {sortedVentas.map(venta => (
+                  <TableRow key={venta.id}>
+                    <TableCell>{formatDate(venta.fecha)}</TableCell>
+                    <TableCell>{venta.vendedorNombre}</TableCell>
+                    <TableCell>{formatCurrency(venta.montoEfectivo)}</TableCell>
+                    <TableCell>{formatCurrency(venta.montoTransferencia)}</TableCell>
+                    <TableCell className="font-bold">{formatCurrency(venta.totalVendido)}</TableCell>
+                    <TableCell className="text-green-600 font-bold">{formatCurrency(venta.salarioCalculado)}</TableCell>
+                    <TableCell>
+                      {venta.diferenciaCaja === null || venta.diferenciaCaja === undefined ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : venta.diferenciaCaja > 0 ? (
+                        <Badge className="bg-green-500">+{formatCurrency(venta.diferenciaCaja)}</Badge>
+                      ) : venta.diferenciaCaja < 0 ? (
+                        <Badge className="bg-red-500">−{formatCurrency(Math.abs(venta.diferenciaCaja))}</Badge>
+                      ) : (
+                        <Badge variant="outline">✓</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="h-8 w-8 p-0">
+                            <span className="sr-only">Abrir menú</span>
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => setEditingVenta(venta)}>
+                            <Edit className="mr-2 h-4 w-4" /> Editar
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="text-red-500" onClick={() => setDeleteVenta(venta)}>
+                            <Trash className="mr-2 h-4 w-4" /> Eliminar
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Vista de tarjetas (móvil) */}
+          <div className="md:hidden space-y-3">
+            {sortedVentas.length === 0 ? (
+              <p className="text-center py-8 text-slate-500">No hay ventas registradas</p>
+            ) : (
+              sortedVentas.map(venta => (
+                <Card key={venta.id} className="p-0">
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{venta.vendedorNombre}</p>
+                        <p className="text-xs text-slate-500">{formatDate(venta.fecha)}</p>
+                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="h-8 w-8 p-0 shrink-0">
+                            <span className="sr-only">Abrir menú</span>
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => setEditingVenta(venta)}>
+                            <Edit className="mr-2 h-4 w-4" /> Editar
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="text-red-500" onClick={() => setDeleteVenta(venta)}>
+                            <Trash className="mr-2 h-4 w-4" /> Eliminar
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                      <div className="min-w-0">
+                        <dt className="text-xs text-slate-500">Monto Efectivo</dt>
+                        <dd>{formatCurrency(venta.montoEfectivo)}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-xs text-slate-500">Monto Transferencia</dt>
+                        <dd>{formatCurrency(venta.montoTransferencia)}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-xs text-slate-500">Total Vendido</dt>
+                        <dd className="font-bold">{formatCurrency(venta.totalVendido)}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-xs text-slate-500">Salario del Día</dt>
+                        <dd className="text-green-600 font-bold">{formatCurrency(venta.salarioCalculado)}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-xs text-slate-500">Diferencia</dt>
+                        <dd>
+                          {venta.diferenciaCaja === null || venta.diferenciaCaja === undefined
+                            ? <span className="text-slate-400">—</span>
+                            : venta.diferenciaCaja > 0
+                              ? <span className="text-green-600 font-semibold">Sobrante {formatCurrency(venta.diferenciaCaja)}</span>
+                              : venta.diferenciaCaja < 0
+                                ? <span className="text-red-600 font-semibold">Faltante {formatCurrency(Math.abs(venta.diferenciaCaja))}</span>
+                                : <span className="text-slate-500">✓ Cuadra</span>}
+                        </dd>
+                      </div>
+                    </dl>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -439,12 +562,14 @@ const handleConfirmVenta = async () => {
         </DialogContent>
       </Dialog>
 
-      <IPVE open={ipveDiarioOpen} onOpenChange={setIpveDiarioOpen} modoDiario={true} user={user || undefined} />
+      <IPVE open={ipveDiarioOpen} onOpenChange={setIpveDiarioOpen} modoDiario={true} user={user || undefined} totalCierre={totalVentasHoy} ventasHoy={ventasHoy} />
       <HistorialIPVE open={historialIpveOpen} onOpenChange={setHistorialIpveOpen} />
       <ContadorBilletes
         open={contadorOpen}
         onOpenChange={setContadorOpen}
         onConfirmar={(total) => setContadorConfirmado(total)}
+        initialCantidades={contadorBilletes}
+        onCantidadesChange={setContadorBilletes}
       />
 
       {/* Confirm Dialog */}
@@ -463,6 +588,15 @@ const handleConfirmVenta = async () => {
                     <p><strong>Efectivo:</strong> ${confirmVenta.montoEfectivo.toLocaleString('es-CO')}</p>
                     <p><strong>Transferencia:</strong> ${confirmVenta.montoTransferencia.toLocaleString('es-CO')}</p>
                     <p className="font-bold text-lg"><strong>Total:</strong> ${(confirmVenta.montoEfectivo + confirmVenta.montoTransferencia).toLocaleString('es-CO')}</p>
+                    {confirmacionCierre?.ipve !== null && confirmacionCierre?.ipve !== undefined && (
+                        <p><strong>IPVE del día:</strong> {formatCurrency(confirmacionCierre.ipve)}</p>
+                    )}
+                    {confirmacionCierre?.diferencia !== null && confirmacionCierre?.diferencia !== undefined && (
+                        <p className={confirmacionCierre.diferencia > 0 ? 'text-green-600' : confirmacionCierre.diferencia < 0 ? 'text-red-600' : ''}>
+                            <strong>{confirmacionCierre.diferencia > 0 ? 'Sobrante' : confirmacionCierre.diferencia < 0 ? 'Faltante' : 'Cuadra con el IPVE'}:</strong>{' '}
+                            {formatCurrency(Math.abs(confirmacionCierre.diferencia))}
+                        </p>
+                    )}
                 </div>
             )}
             <DialogFooter>

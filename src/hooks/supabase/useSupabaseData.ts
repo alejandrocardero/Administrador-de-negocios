@@ -42,10 +42,13 @@ import {
   toSalarioFijo,
   fromSalarioFijo,
   toFiado,
-  fromFiado
+  fromFiado,
+  fromRegistroIPVE,
+  fromSolicitud
 } from '@/lib/mappers'
 
-export { formatCurrency, formatDate, formatDateTime, generateId } from '@/lib/formatters'
+export { formatCurrency, formatDate, formatDateTime, generateId, toFechaLocal } from '@/lib/formatters'
+import { toFechaLocal } from '@/lib/formatters'
 
 type TableName = keyof Database['public']['Tables']
 
@@ -141,7 +144,7 @@ export function useSupabaseData<T extends { business_id: string; id: string }>(
   }, [fetchData])
 
   const create = useCallback(async (newData: Omit<TablesInsert<TableName>, 'business_id' | 'created_at' | 'updated_at'>) => {
-    return dedup('create', async () => {
+    return dedup('create:' + table + ':' + JSON.stringify(newData), async () => {
       if (!businessId) throw new Error('No business selected')
 
       const insertData = {
@@ -510,13 +513,13 @@ export function useRegistrosIPVE(): IPVEReturn {
   const base = useMappedData<Tables<'registros_ipve'>, RegistroIPVE>(
     { table: 'registros_ipve', orderBy: { column: 'fecha', ascending: false } },
     toRegistroIPVE,
-    input => input as Omit<TablesInsert<TableName>, 'business_id' | 'created_at' | 'updated_at'>
+    fromRegistroIPVE
   )
 
   const agregarRegistro = base.create
 
   const agregarOActualizarRegistro = useCallback(async (registro: Omit<RegistroIPVE, 'id'>) => {
-    return dedup('registros.upsert', async () => {
+    return dedup('registros.upsert:' + registro.fecha + ':' + registro.vendedorId + ':' + registro.productoId + ':' + registro.tipo, async () => {
       const existente = base.data.find(r =>
         r.fecha === registro.fecha &&
         r.vendedorId === registro.vendedorId &&
@@ -560,7 +563,7 @@ export function useRegistrosIPVE(): IPVEReturn {
     fecha: string, vendedorId: string, productoId: string,
     productoNombre: string, cantidad: number, precioVenta: number, vendedorNombre?: string
   ) => {
-    return dedup('entradas.create', async () => {
+    return dedup('entradas.create:' + fecha + ':' + vendedorId + ':' + productoId, async () => {
       const existente = base.data.find(r =>
         r.fecha === fecha && r.vendedorId === vendedorId && r.productoId === productoId && r.tipo === 'diario'
       )
@@ -744,7 +747,7 @@ export function usePedidos(): PedidosReturn {
     [base.data]
   )
 
-  const create = useCallback((input: Partial<Pedido>) => dedup('pedidos.create', () => base.create(input)), [base])
+  const create = useCallback((input: Partial<Pedido>) => dedup('pedidos.create:' + JSON.stringify(input), () => base.create(input)), [base])
 
   return {
     ...base,
@@ -766,7 +769,7 @@ export function useSolicitudesProductoNuevo(): SolicitudesProductoNuevoReturn {
   const base = useMappedData<Tables<'solicitudes_producto_nuevo'>, SolicitudProductoNuevo>(
     { table: 'solicitudes_producto_nuevo', orderBy: { column: 'fecha', ascending: false } },
     toSolicitud,
-    input => input as Omit<TablesInsert<TableName>, 'business_id' | 'created_at' | 'updated_at'>
+    fromSolicitud
   )
 
   const aprobarSolicitud = useCallback(async (id: string, precioVenta: number, stockMinimo: number, productoId: string, comentario?: string) => {
@@ -798,7 +801,7 @@ export function useSalariosFijos(): SalariosFijosReturn {
   )
 
   const upsertSalario = useCallback(async (rol: import('@/types').UserRole, montoSemanal: number) => {
-    return dedup('salarios.upsert', async () => {
+    return dedup('salarios.upsert:' + rol, async () => {
       const existente = base.data.find(s => s.rol === rol)
       if (existente) {
         await base.update(existente.id, { montoSemanal })
@@ -849,14 +852,14 @@ export function useFiados(): FiadosReturn {
   )
 
   const cobrarFiado = useCallback(async (id: string) => {
-    return dedup('fiados.cobrar', async () => {
+    return dedup('fiados.cobrar:' + id, async () => {
       const fiado = base.data.find(f => f.id === id)
       if (!fiado || fiado.estado === 'cobrado') return
 
       await base.update(id, { estado: 'cobrado', fechaCobro: new Date().toISOString() })
 
       const ventaCobro = {
-        fecha: new Date().toISOString(),
+        fecha: toFechaLocal(new Date()),
         vendedorId: fiado.vendedorId,
         vendedorNombre: fiado.vendedorNombre,
         montoEfectivo: fiado.monto,
@@ -906,7 +909,7 @@ export function useConfiguracion() {
   }, [user?.business_id])
 
   const updateConfig = async (data: Partial<TablesUpdate<'configuracion_negocio'>>) => {
-    return dedup('config.upsert', async () => {
+    return dedup('config.upsert:' + JSON.stringify(data), async () => {
       if (!user?.business_id) throw new Error('No business selected')
 
       const { data: result, error } = await supabase
@@ -986,7 +989,7 @@ export function useCompras(): ComprasReturn {
   )
 
   const create = useCallback(async (input: Omit<Compra, 'id'>) => {
-    return dedup('compras.create', async () => {
+    return dedup('compras.create:' + JSON.stringify(input), async () => {
       if (!businessId) throw new Error('No business selected')
 
       const { data: row, error: insertError } = await supabase

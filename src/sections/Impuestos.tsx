@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { 
   Plus, Search, Edit2, Calculator, AlertTriangle,
   CheckCircle, Clock, DollarSign, Loader2
@@ -19,7 +19,8 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
 } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useImpuestos, formatCurrency, formatDate } from '@/hooks/supabase/useSupabaseData';
+import { useImpuestos, formatCurrency, formatDate, toFechaLocal } from '@/hooks/supabase/useSupabaseData';
+import { useAuth } from '@/contexts/AuthContext';
 import type { Impuesto } from '@/types';
 
 const tiposImpuesto = [
@@ -27,10 +28,28 @@ const tiposImpuesto = [
   { value: 'renta', label: 'Renta' },
   { value: 'ica', label: 'ICA' },
   { value: 'otro', label: 'Otro' },
+  { value: 'onat', label: 'Pago ONAT' },
+  { value: 'deposito_bancario', label: 'Depósito Bancario' },
+];
+
+// Meses en español para el periodo de los impuestos mensuales fijos
+const MESES_ES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+];
+
+const obtenerPeriodoMes = (fecha: Date) => `${MESES_ES[fecha.getMonth()]} ${fecha.getFullYear()}`;
+
+// Impuestos mensuales fijos que se auto-generan para todos los negocios
+const impuestosMensuales = [
+  { tipo: 'onat' as const, nombre: 'Pago ONAT' },
+  { tipo: 'deposito_bancario' as const, nombre: 'Depósito Bancario' },
 ];
 
 export default function Impuestos() {
-  const { impuestos, agregarImpuesto, actualizarImpuesto, getImpuestosPendientes } = useImpuestos();
+  const { impuestos, agregarImpuesto, actualizarImpuesto, getImpuestosPendientes, loading } = useImpuestos();
+  const { user } = useAuth();
+  const esJefe = user?.role === 'jefe';
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('todos');
@@ -41,6 +60,55 @@ export default function Impuestos() {
   const [montoPago, setMontoPago] = useState('');
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  // Guardia: evita doble generación en StrictMode y al cambiar de renderizado
+  const autoGenRef = useRef<string | null>(null);
+
+  const periodoMes = obtenerPeriodoMes(new Date());
+
+  // AUTO-GENERACIÓN MENSUAL: crea 'Pago ONAT' y 'Depósito Bancario' del mes actual
+  // si aún no existen. Se espera a que carguen los impuestos para no duplicar registros.
+  useEffect(() => {
+    if (loading) return;
+    const businessId = user?.business_id || '';
+    if (autoGenRef.current === businessId) return;
+    autoGenRef.current = businessId;
+
+    const generar = async () => {
+      // Último día del mes actual como fecha de vencimiento
+      const ahora = new Date();
+      const fechaVencimiento = toFechaLocal(new Date(ahora.getFullYear(), ahora.getMonth() + 1, 0));
+
+      for (const mensual of impuestosMensuales) {
+        try {
+          const existe = impuestos.some(i => i.tipo === mensual.tipo && i.periodo === periodoMes);
+          if (!existe) {
+            await agregarImpuesto({
+              nombre: `${mensual.nombre} — ${periodoMes}`,
+              tipo: mensual.tipo,
+              periodo: periodoMes,
+              fechaVencimiento,
+              monto: 0,
+              montoPagado: 0,
+              estado: 'pendiente',
+            });
+          }
+        } catch (err) {
+          // Nunca romper la página por un fallo de auto-generación
+          console.warn(`No se pudo generar el impuesto mensual "${mensual.nombre}":`, err);
+        }
+      }
+    };
+
+    generar();
+  }, [loading, impuestos, agregarImpuesto, user?.business_id, periodoMes]);
+
+  // Impuestos mensuales fijos del periodo actual que aún no están pagados (alerta del jefe)
+  const impuestosMensualesPendientes = impuestos.filter(
+    (i: Impuesto) =>
+      (i.tipo === 'onat' || i.tipo === 'deposito_bancario') &&
+      i.periodo === periodoMes &&
+      i.estado !== 'pagado'
+  );
 
   const [formData, setFormData] = useState({
     nombre: '',
@@ -93,7 +161,7 @@ export default function Impuestos() {
         nombre: formData.nombre,
         tipo: formData.tipo,
         periodo: formData.periodo,
-        fechaVencimiento: new Date(formData.fechaVencimiento).toISOString(),
+        fechaVencimiento: toFechaLocal(formData.fechaVencimiento),
         monto: parseFloat(formData.monto) || 0,
         montoPagado: editingImpuesto?.montoPagado || 0,
         estado: editingImpuesto?.estado || 'pendiente',
@@ -128,10 +196,17 @@ export default function Impuestos() {
         const totalPagado = impuestoToPay.montoPagado + nuevoMonto;
         const nuevoEstado: Impuesto['estado'] = totalPagado >= impuestoToPay.monto ? 'pagado' : 'pendiente';
         
-        await actualizarImpuesto(impuestoToPay.id, {
+        const patch: Partial<Impuesto> = {
           montoPagado: totalPagado,
           estado: nuevoEstado,
-        });
+        };
+        // Los impuestos mensuales nacen con monto 0 (el jefe introduce lo que pagó):
+        // el monto final del impuesto se ajusta al total pagado.
+        if (impuestoToPay.monto < totalPagado) {
+          patch.monto = totalPagado;
+        }
+
+        await actualizarImpuesto(impuestoToPay.id, patch);
         setPagoDialogOpen(false);
         setImpuestoToPay(null);
         setMontoPago('');
@@ -164,6 +239,40 @@ export default function Impuestos() {
 
   return (
     <div className="space-y-6">
+      {/* Alerta mensual para el jefe: impuestos fijos del mes sin pagar */}
+      {esJefe && impuestosMensualesPendientes.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+            <div className="flex-1 space-y-2">
+              <p className="font-semibold text-amber-800">
+                Impuestos mensuales pendientes de pago — {periodoMes}
+              </p>
+              {impuestosMensualesPendientes.map((impuesto: Impuesto) => (
+                <div
+                  key={impuesto.id}
+                  className="flex items-center justify-between gap-2 bg-white/70 rounded-md px-3 py-2"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-amber-900">{impuesto.nombre}</p>
+                    <p className="text-xs text-amber-700">
+                      Vence: {formatDate(impuesto.fechaVencimiento)} · Monto: {formatCurrency(impuesto.monto)}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="bg-amber-600 hover:bg-amber-700 text-white"
+                    onClick={() => handleOpenPago(impuesto)}
+                  >
+                    Registrar pago
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Estadísticas */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <Card>
