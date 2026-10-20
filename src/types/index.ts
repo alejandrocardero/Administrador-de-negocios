@@ -118,6 +118,8 @@ export interface Producto {
   unidad: string;
   fechaRegistro: string;
   activo: boolean;
+  /** true si el producto fue creado desde Compras sin existir en el inventario */
+  esNuevo?: boolean;
 }
 
 export interface DetalleCompra {

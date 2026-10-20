@@ -21,7 +21,7 @@ import type { Compra, DetalleCompra, Comprador, Producto } from '@/types';
 export default function HacerCompras() {
   const { data: compras, create: crearCompra, refetch: refetchCompras } = useCompras();
   const { data: compradores } = useCompradores();
-  const { data: productos, update: actualizarProducto } = useProductos();
+  const { data: productos, update: actualizarProducto, create: crearProducto, refetch: refetchProductos } = useProductos();
 
   const [selectedCompra, setSelectedCompra] = useState<Compra | null>(null);
 
@@ -36,6 +36,19 @@ export default function HacerCompras() {
   const [productoSearch, setProductoSearch] = useState('');
   const [compradorSugOpen, setCompradorSugOpen] = useState(false);
   const [productoSugOpen, setProductoSugOpen] = useState(false);
+  // Alta rápida de un producto que NO existe en el inventario (desde el buscador)
+  const [nuevoProductoOpen, setNuevoProductoOpen] = useState(false);
+  const [creandoProducto, setCreandoProducto] = useState(false);
+  const [nuevoProductoForm, setNuevoProductoForm] = useState({
+    nombre: '',
+    codigo: '',
+    categoria: 'otros' as Producto['categoria'],
+    precioVenta: '',
+    stockMinimo: '5',
+    unidad: 'unidad',
+  });
+  // Productos creados en esta compra: aún no aparecen en `productos` (lista del hook)
+  const productosCreadosRef = useRef<Producto[]>([]);
   const [detalles, setDetalles] = useState<DetalleCompra[]>([]);
   const [metodoPago, setMetodoPago] = useState<Compra['metodoPago']>('efectivo');
   const [notas, setNotas] = useState('');
@@ -64,6 +77,14 @@ export default function HacerCompras() {
       : productos.filter(p => p.activo),
     [productos, productoSearch]
   );
+
+  // true cuando la búsqueda no coincide exactamente con ningún producto activo:
+  // en ese caso se ofrece crearlo como producto nuevo.
+  const busquedaSinCoincidenciaExacta = useMemo(() => {
+    const q = productoSearch.trim().toLowerCase();
+    if (!q) return false;
+    return !productos.some(p => p.activo && p.nombre.trim().toLowerCase() === q);
+  }, [productos, productoSearch]);
 
   const subtotal = useMemo(() =>
     detalles.reduce((sum, d) => sum + d.subtotal, 0),
@@ -95,6 +116,53 @@ export default function HacerCompras() {
     }
     setProductoSearch('');
     setProductoSugOpen(false);
+  };
+
+  const generarCodigoProducto = (nombre: string) => {
+    const base = nombre.replace(/\s+/g, '').slice(0, 4).toUpperCase() || 'PROD';
+    return `${base}-${Math.floor(1000 + Math.random() * 9000)}`;
+  };
+
+  const handleAbrirNuevoProducto = () => {
+    const nombre = productoSearch.trim();
+    setNuevoProductoForm(prev => ({
+      ...prev,
+      nombre,
+      codigo: generarCodigoProducto(nombre),
+    }));
+    setProductoSugOpen(false);
+    setNuevoProductoOpen(true);
+  };
+
+  // Crea el producto en el inventario (etiquetado como "Nuevo") y lo agrega a la compra
+  const handleGuardarNuevoProducto = async () => {
+    if (creandoProducto) return;
+    const nombre = nuevoProductoForm.nombre.trim();
+    if (!nombre) return;
+    setCreandoProducto(true);
+    try {
+      const creado = await crearProducto({
+        codigo: nuevoProductoForm.codigo.trim() || generarCodigoProducto(nombre),
+        nombre,
+        descripcion: '',
+        categoria: nuevoProductoForm.categoria,
+        precioCompra: 0, // el precio real se fija al guardar la compra (columna P. Unitario)
+        precioVenta: parseFloat(nuevoProductoForm.precioVenta) || 0,
+        porcentajeGanancia: 0,
+        stock: 0, // el stock entra con la compra que se está registrando
+        stockMinimo: parseInt(nuevoProductoForm.stockMinimo) || 0,
+        unidad: nuevoProductoForm.unidad.trim() || 'unidad',
+        esNuevo: true,
+      });
+      if (creado) {
+        productosCreadosRef.current = [...productosCreadosRef.current, creado];
+        handleAddProductoConCantidad(creado, 1);
+      }
+      setNuevoProductoOpen(false);
+      setNuevoProductoForm({ nombre: '', codigo: '', categoria: 'otros', precioVenta: '', stockMinimo: '5', unidad: 'unidad' });
+    } finally {
+      setCreandoProducto(false);
+    }
   };
 
   const handleUpdateCantidad = (index: number, cantidad: number) => {
@@ -149,7 +217,9 @@ export default function HacerCompras() {
       await refetchCompras();
 
       for (const detalle of detalles) {
-        const producto = productos.find(p => p.id === detalle.productoId);
+        // Los productos recién creados no están aún en `productos`: buscarlos en el ref
+        const producto = productos.find(p => p.id === detalle.productoId)
+          ?? productosCreadosRef.current.find(p => p.id === detalle.productoId);
         if (producto) {
           await actualizarProducto(producto.id, {
             stock: producto.stock + detalle.cantidad,
@@ -157,6 +227,9 @@ export default function HacerCompras() {
           });
         }
       }
+
+      await refetchProductos();
+      productosCreadosRef.current = [];
 
       setDetalles([]);
       setSelectedComprador(null);
@@ -326,7 +399,7 @@ export default function HacerCompras() {
                   onClick={() => setProductoSugOpen(true)}
                   onBlur={() => setProductoSugOpen(false)}
                 />
-                {productoSugOpen && filteredProductos.length > 0 && (
+                {productoSugOpen && (filteredProductos.length > 0 || (productoSearch.trim() !== '' && busquedaSinCoincidenciaExacta)) && (
                   <div className="absolute z-10 w-full mt-1 max-h-40 overflow-y-auto bg-white border rounded-md shadow-lg">
                     {filteredProductos.map(p => (
                       <button
@@ -339,6 +412,16 @@ export default function HacerCompras() {
                         <Badge variant="secondary">{p.stock} {p.unidad}</Badge>
                       </button>
                     ))}
+                    {productoSearch.trim() !== '' && busquedaSinCoincidenciaExacta && (
+                      <button
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={handleAbrirNuevoProducto}
+                        className="w-full px-3 py-2 text-left hover:bg-blue-50 border-t flex items-center gap-2 text-blue-700 font-medium"
+                      >
+                        <Plus className="w-4 h-4 shrink-0" />
+                        <span>Agregar "{productoSearch.trim()}" como producto nuevo (irá al inventario con etiqueta "Nuevo")</span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -425,6 +508,99 @@ export default function HacerCompras() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog para crear un producto nuevo que no está en el inventario */}
+      <Dialog open={nuevoProductoOpen} onOpenChange={setNuevoProductoOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Agregar Producto Nuevo</DialogTitle>
+            <DialogDescription>
+              Se creará en el inventario con la etiqueta <Badge className="bg-blue-600 text-white">Nuevo</Badge> y se agregará a esta compra.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="np-nombre">Nombre *</Label>
+              <Input
+                id="np-nombre"
+                value={nuevoProductoForm.nombre}
+                onChange={(e) => setNuevoProductoForm({ ...nuevoProductoForm, nombre: e.target.value })}
+                placeholder="Nombre del producto"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="np-codigo">Código</Label>
+              <Input
+                id="np-codigo"
+                value={nuevoProductoForm.codigo}
+                onChange={(e) => setNuevoProductoForm({ ...nuevoProductoForm, codigo: e.target.value })}
+                placeholder="Se genera automáticamente"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="np-categoria">Categoría *</Label>
+              <Select
+                value={nuevoProductoForm.categoria}
+                onValueChange={(v) => setNuevoProductoForm({ ...nuevoProductoForm, categoria: v as Producto['categoria'] })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="aseo">Aseo</SelectItem>
+                  <SelectItem value="comida">Comida</SelectItem>
+                  <SelectItem value="bebidas">Bebidas</SelectItem>
+                  <SelectItem value="cerveza">Cerveza</SelectItem>
+                  <SelectItem value="otros">Otros</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="np-precio">Precio de Venta *</Label>
+              <Input
+                id="np-precio"
+                type="number"
+                min="0"
+                step="any"
+                value={nuevoProductoForm.precioVenta}
+                onChange={(e) => setNuevoProductoForm({ ...nuevoProductoForm, precioVenta: e.target.value })}
+                placeholder="0"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="np-minimo">Stock Mínimo</Label>
+              <Input
+                id="np-minimo"
+                type="number"
+                min="0"
+                value={nuevoProductoForm.stockMinimo}
+                onChange={(e) => setNuevoProductoForm({ ...nuevoProductoForm, stockMinimo: e.target.value })}
+                placeholder="5"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="np-unidad">Unidad</Label>
+              <Input
+                id="np-unidad"
+                value={nuevoProductoForm.unidad}
+                onChange={(e) => setNuevoProductoForm({ ...nuevoProductoForm, unidad: e.target.value })}
+                placeholder="unidad"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNuevoProductoOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleGuardarNuevoProducto} disabled={creandoProducto || !nuevoProductoForm.nombre.trim()}>
+              {creandoProducto && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Crear y Agregar a la Compra
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

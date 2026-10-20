@@ -542,7 +542,12 @@ export default function Inventario() {
                     productsForTable.map((producto) => (
                       <TableRow key={producto.id}>
                         <TableCell className="font-medium">{producto.codigo}</TableCell>
-                        <TableCell>{producto.nombre}</TableCell>
+                        <TableCell>
+                          <span className="inline-flex items-center gap-2">
+                            {producto.nombre}
+                            {producto.esNuevo && <Badge className="bg-blue-600 text-white">Nuevo</Badge>}
+                          </span>
+                        </TableCell>
                         <TableCell>
                           <Badge variant="outline">{getCategoriaLabel(producto.categoria)}</Badge>
                         </TableCell>

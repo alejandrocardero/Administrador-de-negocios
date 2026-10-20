@@ -38,7 +38,8 @@ export function toProducto(r: Tables<'productos'>): Producto {
     stockMinimo: r.stock_minimo,
     unidad: r.unidad,
     fechaRegistro: r.fecha_registro,
-    activo: r.activo
+    activo: r.activo,
+    esNuevo: r.es_nuevo ?? false
   }
 }
 
@@ -55,7 +56,8 @@ export function fromProducto(p: Partial<Producto>): OmitMeta<TablesInsert<'produ
     stock_minimo: p.stockMinimo,
     unidad: p.unidad,
     fecha_registro: p.fechaRegistro,
-    activo: p.activo
+    activo: p.activo,
+    es_nuevo: p.esNuevo
   }) as OmitMeta<TablesInsert<'productos'>>
 }
 

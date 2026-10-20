@@ -106,6 +106,7 @@ export interface Database {
           unidad: string
           fecha_registro: string
           activo: boolean
+          es_nuevo: boolean
           created_at: string
           updated_at: string
         }
@@ -124,6 +125,7 @@ export interface Database {
           unidad: string
           fecha_registro?: string
           activo?: boolean
+          es_nuevo?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -142,6 +144,7 @@ export interface Database {
           unidad?: string
           fecha_registro?: string
           activo?: boolean
+          es_nuevo?: boolean
           created_at?: string
           updated_at?: string
         }
