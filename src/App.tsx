@@ -1,15 +1,8 @@
-import { useState } from 'react';
-import { 
-  LayoutDashboard, Package, ShoppingCart, Users,
-  Receipt, TrendingUp, Settings, Menu, LogOut, ClipboardCheck, Wallet, HandCoins, CalendarCheck
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { cn } from '@/lib/utils';
+import { useEffect, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import type { Section } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useBusiness } from '@/contexts/BusinessContext';
-import { UserAvatar } from '@/components/BusinessSelector';
 
 import Dashboard from '@/sections/Dashboard';
 import Inventario from '@/sections/Inventario';
@@ -19,7 +12,6 @@ import Compradores from '@/sections/Compradores';
 import Compras from '@/sections/Compras';
 import Gastos from '@/sections/Gastos';
 import Impuestos from '@/sections/Impuestos';
-import SyncIndicator from '@/components/SyncIndicator';
 import ConflictResolver from '@/components/ConflictResolver';
 import Reportes from '@/sections/Reportes';
 import Configuracion from '@/sections/Configuracion';
@@ -32,241 +24,13 @@ import Salarios from '@/sections/Salarios';
 import ReporteVentaDiaria from '@/sections/ReporteVentaDiaria';
 import Fiados from '@/sections/Fiados';
 import AvisoFiados from '@/components/AvisoFiados';
+import AvisoPedidos from '@/components/AvisoPedidos';
+import AvisoSolicitudes from '@/components/AvisoSolicitudes';
 
 import { BusinessLanding, OnboardingDialog } from '@/components/auth/BusinessLanding';
-
-interface MenuItem {
-  id: string;
-  label: string;
-  icon: React.ElementType;
-}
-
-const menuItemsJefe: MenuItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'inventario', label: 'Inventario', icon: Package },
-  { id: 'ventas', label: 'Ventas', icon: ShoppingCart },
-  { id: 'vendedores', label: 'Vendedores', icon: Users },
-  { id: 'compradores', label: 'Compradores', icon: Users },
-  { id: 'compras', label: 'Compras', icon: Receipt },
-  { id: 'gastos', label: 'Gastos', icon: Receipt },
-  { id: 'impuestos', label: 'Impuestos', icon: Receipt },
-  { id: 'salarios', label: 'Salarios', icon: Wallet },
-  { id: 'reportes', label: 'Reportes', icon: TrendingUp },
-  { id: 'reporteDiario', label: 'Reporte Venta Diaria', icon: CalendarCheck },
-  { id: 'configuracion', label: 'Configuración', icon: Settings },
-  { id: 'aprobarProductos', label: 'Nuevos Productos', icon: ClipboardCheck },
-  { id: 'fiados', label: 'Fiados', icon: HandCoins },
-];
-
-const menuItemsAdmin: MenuItem[] = [
-  { id: 'inventario', label: 'Inventario', icon: Package },
-  { id: 'vendedores', label: 'Vendedores', icon: Users },
-  { id: 'compradores', label: 'Compradores', icon: Users },
-  { id: 'pedidos', label: 'Pedidos', icon: Package },
-  { id: 'aprobarProductos', label: 'Nuevos Productos', icon: ClipboardCheck },
-  { id: 'fiados', label: 'Fiados', icon: HandCoins },
-];
-
-const menuItemsVendedor: MenuItem[] = [
-  { id: 'ventas', label: 'Ventas', icon: ShoppingCart },
-  { id: 'pedidos', label: 'Pedidos', icon: Package },
-  { id: 'fiados', label: 'Fiados', icon: HandCoins },
-];
-
-const menuItemsComprador: MenuItem[] = [
-  { id: 'compradores', label: 'Compradores', icon: Users },
-  { id: 'compras', label: 'Realizar Compras', icon: Receipt },
-  { id: 'alertaStock', label: 'Alerta Stock', icon: Package },
-  { id: 'fiados', label: 'Fiados', icon: HandCoins },
-];
-
-function Sidebar({ 
-  activeSectionId, 
-  onSectionChange,
-  collapsed = false,
-  menuItems,
-  userName
-}: { 
-  activeSectionId: string; 
-  onSectionChange: (section: Section) => void;
-  collapsed?: boolean;
-  menuItems: MenuItem[];
-  userName: string;
-}) {
-  return (
-    <div className={cn(
-      "flex flex-col h-full bg-slate-900 text-white transition-all duration-300",
-      collapsed ? "w-16" : "w-64"
-    )}>
-      <div className="flex items-center justify-center h-14 sm:h-16 border-b border-slate-700 px-2">
-        {!collapsed && (
-          <div className="flex items-center gap-2">
-            <img 
-              src="/logo.png" 
-              alt="Logo" 
-              className="w-7 h-7 sm:w-8 sm:h-8 object-contain"
-            />
-            <span className="font-bold text-base sm:text-lg hidden sm:block">AdminNegocio</span>
-          </div>
-        )}
-        {collapsed && (
-          <img 
-            src="/logo.png" 
-            alt="Logo" 
-            className="w-7 h-7 sm:w-8 sm:h-8 object-contain"
-          />
-        )}
-      </div>
-      
-      <nav className="flex-1 overflow-y-auto py-4">
-        <ul className="space-y-1 px-2">
-          {menuItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeSectionId === item.id;
-            
-            return (
-              <li key={item.id}>
-                <button
-                  onClick={() => onSectionChange({ id: item.id as Section['id'] })}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm font-medium",
-                    isActive 
-                      ? "bg-blue-600 text-white" 
-                      : "text-slate-300 hover:bg-slate-800 hover:text-white",
-                    collapsed && "justify-center px-2"
-                  )}
-                  title={collapsed ? item.label : undefined}
-                >
-                  <Icon className={cn("w-5 h-5 flex-shrink-0", isActive && "text-white")} />
-                  {!collapsed && <span className="hidden sm:block">{item.label}</span>}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
-      
-      <div className="p-3 sm:p-4 border-t border-slate-700">
-        {!collapsed && (
-          <div className="text-xs text-slate-400 text-center">
-            <p className="truncate">{userName}</p>
-            <p className="hidden sm:block">v1.0.0 - AdminNegocio Pro</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function MobileSidebar({ 
-  activeSectionId, 
-  onSectionChange,
-  menuItems,
-  userName
-}: { 
-  activeSectionId: string; 
-  onSectionChange: (section: Section) => void;
-  menuItems: MenuItem[];
-  userName: string;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" className="lg:hidden">
-          <Menu className="h-6 w-6" />
-        </Button>
-      </SheetTrigger>
-      <SheetContent side="left" className="p-0 w-64 sm:w-72">
-        <div className="flex flex-col h-full bg-slate-900 text-white">
-          <div className="flex items-center justify-center h-14 sm:h-16 border-b border-slate-700 px-2">
-            <div className="flex items-center gap-2">
-              <img 
-                src="/logo.png" 
-                alt="Logo" 
-                className="w-8 h-8 object-contain"
-              />
-              <span className="font-bold text-lg">AdminNegocio</span>
-            </div>
-          </div>
-          
-          <nav className="flex-1 overflow-y-auto py-4">
-            <ul className="space-y-1 px-2">
-              {menuItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = activeSectionId === item.id;
-                
-                return (
-                  <li key={item.id}>
-                    <button
-                      onClick={() => {
-                        onSectionChange({ id: item.id as Section['id'] });
-                        setOpen(false);
-                      }}
-                      className={cn(
-                        "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm font-medium",
-                        isActive 
-                          ? "bg-blue-600 text-white" 
-                          : "text-slate-300 hover:bg-slate-800 hover:text-white"
-                      )}
-                    >
-                      <Icon className={cn("w-5 h-5 flex-shrink-0", isActive && "text-white")} />
-                      <span>{item.label}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </nav>
-          
-          <div className="p-4 border-t border-slate-700">
-            <div className="text-xs text-slate-400 text-center">
-              <p className="truncate">{userName}</p>
-              <p>v1.0.0 - AdminNegocio Pro</p>
-            </div>
-          </div>
-        </div>
-      </SheetContent>
-    </Sheet>
-  );
-}
-
-function Header({ 
-  title, 
-  onMenuClick,
-  onLogout
-}: { 
-  title: string; 
-  onMenuClick: () => void;
-  onLogout: () => void;
-}) {
-  return (
-    <header className="h-14 sm:h-16 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-4 lg:px-6">
-      <div className="flex items-center gap-2 sm:gap-4">
-        <Button variant="ghost" size="icon" onClick={onMenuClick} className="hidden lg:flex">
-          <Menu className="h-5 w-5" />
-        </Button>
-        <h1 className="text-lg sm:text-xl font-semibold text-slate-800 truncate max-w-[200px] sm:max-w-none">{title}</h1>
-      </div>
-      <div className="flex items-center gap-2 sm:gap-3">
-        <div className="hidden md:flex items-center gap-2 text-sm text-slate-500">
-          <span className="text-xs lg:text-sm">{new Date().toLocaleDateString('es-CO', { 
-            weekday: 'short', 
-            year: 'numeric', 
-            month: 'short', 
-            day: 'numeric' 
-          })}</span>
-        </div>
-        <UserAvatar />
-        <SyncIndicator />
-        <Button variant="ghost" size="icon" onClick={onLogout} title="Cerrar sesión" className="h-8 w-8 sm:h-9 sm:w-9">
-          <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
-        </Button>
-      </div>
-    </header>
-  );
-}
+import { AppSidebar, MobileSidebar } from '@/components/layout/AppSidebar';
+import { AppHeader } from '@/components/layout/AppHeader';
+import { getNavForRole } from '@/components/layout/nav-config';
 
 export default function App() {
   const { user, loading: authLoading, logout } = useAuth();
@@ -274,18 +38,29 @@ export default function App() {
   const [activeSection, setActiveSection] = useState<Section>({ id: 'dashboard' });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
+  const [showOnboardingDialog, setShowOnboardingDialog] = useState(false);
 
   const bumpDataVersion = () => {
     setDataVersion(v => v + 1);
   };
 
-  const [showOnboardingDialog, setShowOnboardingDialog] = useState(false);
+  const menuItems = user ? getNavForRole(user.role) : [];
+
+  // Si la sección activa no existe en el menú del rol actual (p. ej. al cambiar
+  // de sesión), se corrige en un efecto — nunca con setState durante el render.
+  useEffect(() => {
+    if (menuItems.length > 0 && !menuItems.find(item => item.id === activeSection.id)) {
+      setActiveSection({ id: menuItems[0].id as Section['id'] });
+    }
+  }, [menuItems, activeSection.id]);
 
   // Si hay auth loading -> mostrar loading
   if (authLoading || bizLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
+        <img src="/logo.png" alt="AdminNegocio Pro" className="h-14 w-14 object-contain" />
+        <Loader2 aria-hidden className="h-6 w-6 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Cargando tu negocio…</p>
       </div>
     );
   }
@@ -300,13 +75,7 @@ export default function App() {
     );
   }
 
-  const menuItems = user.role === 'vendedor' ? menuItemsVendedor : 
-                    user.role === 'admin' ? menuItemsAdmin :
-                    user.role === 'comprador' ? menuItemsComprador : menuItemsJefe;
-  
-  if (!menuItems.find(item => item.id === activeSection.id)) {
-    setActiveSection({ id: menuItems[0].id as Section['id'] });
-  }
+  const toggleSidebar = () => setSidebarCollapsed(v => !v);
 
   const renderSection = () => {
     // 'reporteDiario' existe solo en el menú del jefe; se amplía el tipo del
@@ -352,36 +121,35 @@ export default function App() {
   const activeItem = menuItems.find(item => item.id === activeSection.id);
 
   return (
-    <div className="flex h-screen bg-slate-50">
+    <div className="flex h-screen overflow-hidden bg-background">
       <div className="hidden lg:block">
-        <Sidebar 
-          activeSectionId={activeSection.id} 
+        <AppSidebar
+          activeSectionId={activeSection.id}
           onSectionChange={setActiveSection}
           collapsed={sidebarCollapsed}
+          onToggleCollapsed={toggleSidebar}
           menuItems={menuItems}
           userName={user.nombre}
         />
       </div>
 
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex items-center gap-2 lg:hidden px-4 py-3 bg-white border-b border-slate-200">
-          <MobileSidebar 
-            activeSectionId={activeSection.id} 
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Barra de marca móvil (el sidebar vive en un Sheet) */}
+        <div className="flex items-center gap-2 border-b border-border bg-background px-4 py-3 lg:hidden">
+          <MobileSidebar
+            activeSectionId={activeSection.id}
             onSectionChange={setActiveSection}
             menuItems={menuItems}
             userName={user.nombre}
           />
-          <img 
-            src="/logo.png" 
-            alt="Logo" 
-            className="w-8 h-8 object-contain"
-          />
-          <span className="font-semibold text-lg">AdminNegocio</span>
+          <img src="/logo.png" alt="AdminNegocio Pro" className="h-8 w-8 object-contain" />
+          <span className="text-lg font-semibold tracking-tight text-foreground">AdminNegocio</span>
         </div>
-        
-        <Header 
-          title={activeItem?.label || 'Ventas'} 
-          onMenuClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+
+        <AppHeader
+          title={activeItem?.label || 'Ventas'}
+          collapsed={sidebarCollapsed}
+          onToggleCollapsed={toggleSidebar}
           onLogout={logout}
         />
 
@@ -393,6 +161,12 @@ export default function App() {
       </div>
 
       <AvisoFiados onCobrado={bumpDataVersion} />
+      {(user.role === 'admin' || user.role === 'jefe') && (
+        <>
+          <AvisoPedidos onProcesar={bumpDataVersion} />
+          <AvisoSolicitudes onProcesar={bumpDataVersion} />
+        </>
+      )}
     </div>
   );
 }

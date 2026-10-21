@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Calendar } from '@/components/ui/calendar';
@@ -13,6 +12,7 @@ import type { Fiado } from '@/types';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import { LabeledInput } from '@/components/shared';
 
 interface FiadoDialogProps {
   open: boolean;
@@ -34,7 +34,7 @@ export default function FiadoDialog({ open, onOpenChange, onSave, defaultVendedo
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
 
-  const vendedorNombre = useMemo(() => 
+  const vendedorNombre = useMemo(() =>
     formData.vendedorId ? vendedores.find(v => v.id === formData.vendedorId)?.nombre || '' : '',
     [formData.vendedorId, vendedores]
   );
@@ -85,22 +85,20 @@ export default function FiadoDialog({ open, onOpenChange, onSave, defaultVendedo
           <DialogDescription>Datos del cliente y producto fiado</DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label htmlFor="clienteNombre">Cliente *</Label>
-            <Input
-              id="clienteNombre"
-              value={formData.clienteNombre}
-              onChange={(e) => handleChange('clienteNombre', e.target.value)}
-              placeholder="Nombre del cliente"
-              required
-            />
-          </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <LabeledInput
+            id="clienteNombre"
+            label="Cliente *"
+            value={formData.clienteNombre}
+            onChange={(e) => handleChange('clienteNombre', e.target.value)}
+            placeholder="Nombre del cliente"
+            required
+          />
 
-          <div className="space-y-2">
+          <div className="flex w-full flex-col gap-1.5">
             <Label htmlFor="vendedorId">Vendedor *</Label>
             <Select value={formData.vendedorId} onValueChange={(val) => handleChange('vendedorId', val)}>
-              <SelectTrigger>
+              <SelectTrigger id="vendedorId" className="w-full">
                 <SelectValue placeholder="Seleccione vendedor" />
               </SelectTrigger>
               <SelectContent>
@@ -111,7 +109,7 @@ export default function FiadoDialog({ open, onOpenChange, onSave, defaultVendedo
             </Select>
           </div>
 
-          <div className="space-y-2">
+          <div className="flex w-full flex-col gap-1.5">
             <Label htmlFor="fecha">Fecha del Fiado *</Label>
             <Popover>
               <PopoverTriggerRoot asChild>
@@ -119,7 +117,7 @@ export default function FiadoDialog({ open, onOpenChange, onSave, defaultVendedo
                   variant="outline"
                   className={cn("w-full justify-start text-left font-normal", !formData.fecha && "text-muted-foreground")}
                 >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  <CalendarIcon className="mr-2 size-4" aria-hidden />
                   {formData.fecha ? format(new Date(formData.fecha), "PPP", { locale: es }) : <span>Seleccione una fecha</span>}
                 </Button>
               </PopoverTriggerRoot>
@@ -134,21 +132,19 @@ export default function FiadoDialog({ open, onOpenChange, onSave, defaultVendedo
             </Popover>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="monto">Monto *</Label>
-            <Input
-              id="monto"
-              type="number"
-              min="1"
-              step="any"
-              value={formData.monto}
-              onChange={(e) => handleChange('monto', parseFloat(e.target.value) || 0)}
-              placeholder="0"
-              required
-            />
-          </div>
+          <LabeledInput
+            id="monto"
+            label="Monto *"
+            type="number"
+            min="1"
+            step="any"
+            value={formData.monto}
+            onChange={(e) => handleChange('monto', parseFloat(e.target.value) || 0)}
+            placeholder="0"
+            required
+          />
 
-          <div className="space-y-2">
+          <div className="flex w-full flex-col gap-1.5">
             <Label htmlFor="descripcion">Productos / Descripción *</Label>
             <Textarea
               id="descripcion"
@@ -160,7 +156,7 @@ export default function FiadoDialog({ open, onOpenChange, onSave, defaultVendedo
             />
           </div>
 
-          <div className="space-y-2">
+          <div className="flex w-full flex-col gap-1.5">
             <Label htmlFor="notas">Notas (Opcional)</Label>
             <Textarea
               id="notas"
@@ -171,12 +167,12 @@ export default function FiadoDialog({ open, onOpenChange, onSave, defaultVendedo
             />
           </div>
 
-          <DialogFooter className="flex gap-2">
+          <DialogFooter className="flex gap-3 pt-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancelar
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              {saving && <Loader2 className="size-4 animate-spin" aria-hidden />}
               Registrar Fiado
             </Button>
           </DialogFooter>

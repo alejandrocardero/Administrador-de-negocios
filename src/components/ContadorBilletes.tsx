@@ -2,6 +2,10 @@ import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table';
 
 const DENOMINACIONES = [
   { valor: 5000, label: '$5.000' },
@@ -59,52 +63,56 @@ export default function ContadorBilletes({ open, onOpenChange, onConfirmar, init
           <DialogTitle className="text-center">Contador de Billetes</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-2 py-4">
-          <table className="w-full">
-            <thead>
-              <tr className="text-sm text-muted-foreground">
-                <th className="text-left py-2">Billete</th>
-                <th className="text-center py-2">Cantidad</th>
-                <th className="text-center py-2">=</th>
-                <th className="text-right py-2">Subtotal</th>
-              </tr>
-            </thead>
-            <tbody>
-              {DENOMINACIONES.map(({ valor, label }) => {
-                const cant = cantidades[valor] || 0;
-                const subtotal = valor * cant;
-                return (
-                  <tr key={valor} className="border-t">
-                    <td className="py-2 font-mono text-sm">{label}</td>
-                    <td className="py-2">
-                      <Input
-                        type="number"
-                        min="0"
-                        value={cantidades[valor] || ''}
-                        onChange={(e) => handleCantidadChange(valor, e.target.value)}
-                        placeholder="0"
-                        className="text-center"
-                      />
-                    </td>
-                    <td className="py-2 text-center">x</td>
-                    <td className="py-2 text-right font-mono text-sm">
-                      {cant > 0 ? subtotal.toLocaleString('es-CO') : '-'}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="space-y-4 py-2">
+          <Card className="gap-0 overflow-hidden py-0">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="py-3">Billete</TableHead>
+                  <TableHead className="py-3 text-right">Cantidad</TableHead>
+                  <TableHead className="w-8 py-3 text-center" aria-label="por" />
+                  <TableHead className="py-3 text-right">Subtotal</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {DENOMINACIONES.map(({ valor, label }) => {
+                  const cant = cantidades[valor] || 0;
+                  const subtotal = valor * cant;
+                  return (
+                    <TableRow key={valor}>
+                      <TableCell className="py-3 font-mono text-sm">{label}</TableCell>
+                      <TableCell className="py-3">
+                        <Input
+                          type="number"
+                          min="0"
+                          value={cantidades[valor] || ''}
+                          onChange={(e) => handleCantidadChange(valor, e.target.value)}
+                          placeholder="0"
+                          aria-label={`Cantidad de billetes de ${label}`}
+                          className="text-right tabular-nums"
+                        />
+                      </TableCell>
+                      <TableCell className="py-3 text-center text-muted-foreground">×</TableCell>
+                      <TableCell className="py-3 text-right font-mono text-sm font-semibold tabular-nums">
+                        {cant > 0 ? subtotal.toLocaleString('es-CO') : '—'}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
 
-          <div className="border-t-2 border-black pt-4 mt-4">
-            <div className="flex justify-between items-center text-xl font-bold">
-              <span>TOTAL:</span>
-              <span className="text-green-600 text-2xl">${totalCalculado.toLocaleString('es-CO')}</span>
+            {/* Fila de total destacada dentro de la tarjeta */}
+            <div className="flex items-center justify-between border-t bg-muted/50 px-4 py-3">
+              <span className="text-sm font-semibold">TOTAL</span>
+              <span className="text-xl font-semibold text-success tabular-nums">
+                ${totalCalculado.toLocaleString('es-CO')}
+              </span>
             </div>
-          </div>
+          </Card>
         </div>
 
-        <DialogFooter className="flex gap-2">
+        <DialogFooter>
           <Button variant="outline" onClick={handleLimpiar}>Limpiar</Button>
           <Button onClick={handleConfirmar}>Confirmar</Button>
         </DialogFooter>

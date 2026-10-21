@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { StatusBadge } from '@/components/shared';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { useFiados, formatCurrency, formatDate, toFechaLocal } from '@/hooks/supabase/useSupabaseData';
 
@@ -81,9 +81,11 @@ export default function AvisoFiados({ onCobrado }: AvisoFiadosProps) {
     <>
       <Dialog open={isOpen} onOpenChange={handleClose}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
-              <AlertTriangle className="w-6 h-6" />
+          <DialogHeader className="rounded-xl border border-warning/40 bg-warning/10 p-4">
+            <DialogTitle className="flex items-center gap-2 text-foreground">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-warning/15 text-warning-foreground">
+                <AlertTriangle className="size-4" aria-hidden />
+              </span>
               Fiados Pendientes por Cobrar
             </DialogTitle>
             <DialogDescription>
@@ -98,26 +100,26 @@ export default function AvisoFiados({ onCobrado }: AvisoFiadosProps) {
               .map((fiado) => {
                 const dias = diasPendientes(fiado.fecha);
                 return (
-                  <div key={fiado.id} className="border rounded-lg p-4 bg-slate-50">
+                  <div key={fiado.id} className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-warning/40">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-2">
+                        <div className="mb-2 flex items-center gap-2">
                           <span className="font-medium">{fiado.clienteNombre}</span>
-                          <Badge variant="destructive" className="text-xs">
+                          <StatusBadge tone="danger">
                             {dias} día{dias !== 1 ? 's' : ''} pendiente
-                          </Badge>
+                          </StatusBadge>
                         </div>
-                        <p className="text-sm text-slate-600 mb-1">{fiado.descripcion}</p>
-                        <p className="text-xs text-slate-500">
+                        <p className="mb-1 text-sm text-muted-foreground">{fiado.descripcion}</p>
+                        <p className="text-xs text-muted-foreground">
                           Vendedor: {fiado.vendedorNombre} · {formatDate(fiado.fecha)}
                         </p>
-                        <p className="text-lg font-bold text-red-600 mt-1">{formatCurrency(fiado.monto)}</p>
+                        <p className="mt-1 text-lg font-semibold text-destructive">{formatCurrency(fiado.monto)}</p>
                       </div>
                       <Button
                         variant="default"
                         size="sm"
                         onClick={() => handleCobrar(fiado.id)}
-                        className="flex-shrink-0"
+                        className="shrink-0"
                       >
                         Cobrado
                       </Button>
@@ -127,9 +129,9 @@ export default function AvisoFiados({ onCobrado }: AvisoFiadosProps) {
               })}
           </div>
 
-          <DialogDescription className="text-center text-sm text-slate-500 mt-2">
+          <p className="mt-2 text-center text-sm text-muted-foreground">
             Se cerrará y volverá a aparecer mañana si quedan pendientes.
-          </DialogDescription>
+          </p>
         </DialogContent>
       </Dialog>
 

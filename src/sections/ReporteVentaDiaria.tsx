@@ -1,11 +1,10 @@
 import { useMemo, useState } from 'react';
 import {
   CalendarIcon, CalendarCheck, DollarSign, TrendingUp, TrendingDown, Minus,
-  AlertTriangle, Lock, Loader2, PiggyBank, Package, History
+  AlertTriangle, Lock, PiggyBank, Package, History
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import {
   Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
@@ -13,6 +12,9 @@ import { Calendar } from '@/components/ui/calendar';
 import {
   Popover, PopoverContent, PopoverTrigger as PopoverTriggerRoot
 } from '@/components/ui/popover';
+import {
+  PageHeader, StatusBadge, SkeletonCards, usePagination, TablePagination
+} from '@/components/shared';
 import {
   useVentasDiarias, useRegistrosIPVE, useProductos, formatCurrency
 } from '@/hooks/supabase/useSupabaseData';
@@ -48,26 +50,19 @@ interface ProductoVendidoDia {
   existeProducto: boolean;
 }
 
-/** Badge de variación ±%: verde si sube, rojo si baja, "n/d" si el día base fue 0. */
+/** Badge de variación ±%: éxito si sube, peligro si baja, neutral en "n/d". */
 function VariacionBadge({ variacion }: { variacion: number | null }) {
   if (variacion === null) {
-    return <Badge variant="secondary">n/d</Badge>;
+    return <StatusBadge tone="neutral">n/d</StatusBadge>;
   }
   const esSubida = variacion > 0;
   const esBajada = variacion < 0;
   const Icon = esSubida ? TrendingUp : esBajada ? TrendingDown : Minus;
   return (
-    <Badge
-      variant="secondary"
-      className={cn(
-        esSubida && 'bg-green-100 text-green-800',
-        esBajada && 'bg-red-100 text-red-700',
-        !esSubida && !esBajada && 'bg-slate-100 text-slate-600'
-      )}
-    >
+    <StatusBadge tone={esSubida ? 'success' : esBajada ? 'danger' : 'neutral'}>
       <Icon className="w-3 h-3" />
       {esSubida ? '+' : ''}{formatMargen(variacion)}
-    </Badge>
+    </StatusBadge>
   );
 }
 
@@ -164,14 +159,17 @@ export default function ReporteVentaDiaria() {
   const gananciaNeta = round2(gananciaReal - dia.salariosHoy);
   const cargando = loadingVentas || loadingProductos;
 
+  // Paginación del detalle por producto (pageSize 10; los totales del footer siguen siendo globales del día)
+  const productosPaginados = usePagination(productosDelDia.lista, 10);
+
   // Guard de rol (defensa en profundidad: además solo aparece en el menú del jefe)
   if (user?.role !== 'jefe') {
     return (
       <Card className="max-w-md mx-auto">
         <CardContent className="p-6 text-center space-y-3">
-          <Lock className="w-10 h-10 text-red-500 mx-auto" />
+          <Lock className="w-10 h-10 text-destructive mx-auto" />
           <p className="text-lg font-semibold">No autorizado</p>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-muted-foreground">
             Esta sección está disponible únicamente para el rol jefe.
           </p>
         </CardContent>
@@ -181,14 +179,22 @@ export default function ReporteVentaDiaria() {
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Reporte de Venta Diaria"
+        description="Detalle de ventas y ganancia real por día"
+        icon={CalendarCheck}
+      />
+
       {/* Selector de fecha */}
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
-              <CalendarCheck className="w-8 h-8 text-blue-500 shrink-0" />
+              <div className="rounded-xl bg-primary/10 p-2.5 text-primary shrink-0">
+                <CalendarCheck className="w-5 h-5" aria-hidden />
+              </div>
               <div className="min-w-0">
-                <p className="text-sm text-slate-500">Fecha del reporte</p>
+                <p className="text-sm text-muted-foreground">Fecha del reporte</p>
                 <p className="font-semibold capitalize truncate">
                   {formatFns(fecha, "EEEE, d 'de' MMMM 'de' yyyy", { locale: es })}
                 </p>
@@ -225,101 +231,93 @@ export default function ReporteVentaDiaria() {
       </Card>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-sm text-slate-500">Ventas del día</p>
-                {cargando ? (
-                  <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
-                ) : (
+      {cargando ? (
+        <SkeletonCards count={4} />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm text-muted-foreground">Ventas del día</p>
                   <p className="text-2xl font-bold">{formatCurrency(dia.totalHoy)}</p>
-                )}
-                <p className="text-xs text-slate-400 mt-1">
-                  Efectivo: {formatCurrency(dia.efectivoHoy)} · Transf.: {formatCurrency(dia.transferenciaHoy)}
-                </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Efectivo: {formatCurrency(dia.efectivoHoy)} · Transf.: {formatCurrency(dia.transferenciaHoy)}
+                  </p>
+                </div>
+                <DollarSign className="w-8 h-8 text-primary shrink-0" />
               </div>
-              <DollarSign className="w-8 h-8 text-blue-500 shrink-0" />
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-sm text-slate-500">Vs. semana anterior</p>
-                <div className="mt-1">
-                  {cargando ? (
-                    <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
-                  ) : (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm text-muted-foreground">Vs. semana anterior</p>
+                  <div className="mt-1">
                     <VariacionBadge variacion={dia.variacionSemana} />
-                  )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {formatFns(subDays(fecha, 7), "d 'de' MMM", { locale: es })}: {formatCurrency(dia.totalSemanaAnterior)}
+                  </p>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">
-                  {formatFns(subDays(fecha, 7), "d 'de' MMM", { locale: es })}: {formatCurrency(dia.totalSemanaAnterior)}
-                </p>
+                <TrendingUp className="w-8 h-8 text-success shrink-0" />
               </div>
-              <TrendingUp className="w-8 h-8 text-emerald-500 shrink-0" />
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-sm text-slate-500">Vs. mismo día mes anterior</p>
-                <div className="mt-1">
-                  {cargando ? (
-                    <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
-                  ) : (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm text-muted-foreground">Vs. mismo día mes anterior</p>
+                  <div className="mt-1">
                     <VariacionBadge variacion={dia.variacionMes} />
-                  )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {formatFns(subMonths(fecha, 1), "d 'de' MMM", { locale: es })}: {formatCurrency(dia.totalMesAnterior)}
+                  </p>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">
-                  {formatFns(subMonths(fecha, 1), "d 'de' MMM", { locale: es })}: {formatCurrency(dia.totalMesAnterior)}
-                </p>
+                <History className="w-8 h-8 text-primary shrink-0" />
               </div>
-              <History className="w-8 h-8 text-violet-500 shrink-0" />
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-sm text-slate-500">Ganancia real del día</p>
-                <p className={cn('text-2xl font-bold', gananciaReal >= 0 ? 'text-green-600' : 'text-red-600')}>
-                  {hayRegistrosIpve ? formatCurrency(gananciaReal) : '—'}
-                </p>
-                <p className="text-xs text-slate-400 mt-1">
-                  {hayRegistrosIpve ? `Margen: ${formatMargen(pctMargenGlobal)}` : 'Requiere IPVE del día'}
-                </p>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm text-muted-foreground">Ganancia real del día</p>
+                  <p className={cn('text-2xl font-bold', gananciaReal >= 0 ? 'text-success' : 'text-destructive')}>
+                    {hayRegistrosIpve ? formatCurrency(gananciaReal) : '—'}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {hayRegistrosIpve ? `Margen: ${formatMargen(pctMargenGlobal)}` : 'Requiere IPVE del día'}
+                  </p>
+                </div>
+                <PiggyBank className="w-8 h-8 text-success shrink-0" />
               </div>
-              <PiggyBank className="w-8 h-8 text-green-500 shrink-0" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Avisos */}
       {!cargando && dia.ventasHoy.length === 0 && (
-        <Card className="border-amber-200 bg-amber-50">
+        <Card className="border-warning/30 bg-warning/15">
           <CardContent className="p-4 flex items-center gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
-            <p className="text-sm text-amber-800">No hay ventas registradas para este día.</p>
+            <AlertTriangle className="w-5 h-5 text-warning shrink-0" />
+            <p className="text-sm text-warning-foreground">No hay ventas registradas para este día.</p>
           </CardContent>
         </Card>
       )}
 
       {!hayRegistrosIpve && (
-        <Card className="border-amber-200 bg-amber-50">
+        <Card className="border-warning/30 bg-warning/15">
           <CardContent className="p-4 flex items-center gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
-            <p className="text-sm text-amber-800">
+            <AlertTriangle className="w-5 h-5 text-warning shrink-0" />
+            <p className="text-sm text-warning-foreground">
               Registra el IPVE del día para ver el detalle por producto.
             </p>
           </CardContent>
@@ -327,10 +325,10 @@ export default function ReporteVentaDiaria() {
       )}
 
       {productosDelDia.sinProducto.length > 0 && (
-        <Card className="border-amber-200 bg-amber-50">
+        <Card className="border-warning/30 bg-warning/15">
           <CardContent className="p-4 flex items-center gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
-            <p className="text-sm text-amber-800">
+            <AlertTriangle className="w-5 h-5 text-warning shrink-0" />
+            <p className="text-sm text-warning-foreground">
               No se encontraron {productosDelDia.sinProducto.length} producto(s) del catálogo;
               se asume precio de compra $0 para su ganancia.
             </p>
@@ -344,14 +342,14 @@ export default function ReporteVentaDiaria() {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <Package className="w-5 h-5 text-blue-500" />
+                <Package className="w-5 h-5 text-primary" />
                 Productos Vendidos del Día
               </CardTitle>
             </CardHeader>
             <CardContent>
               {/* Vista de tabla (escritorio) */}
               <div className="hidden md:block">
-                <Table>
+                <Table className="[&_td]:py-3 [&_th]:py-3">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Producto</TableHead>
@@ -364,21 +362,21 @@ export default function ReporteVentaDiaria() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {productosDelDia.lista.map((p) => {
+                    {productosPaginados.pageItems.map((p) => {
                       const pct = p.importe > 0 ? round2((p.ganancia / p.importe) * 100) : null;
                       return (
                         <TableRow key={p.productoId}>
                           <TableCell className="font-medium">
                             {p.nombre}
                             {!p.existeProducto && (
-                              <span className="text-xs text-amber-600"> (sin producto)</span>
+                              <span className="text-xs text-warning-foreground"> (sin producto)</span>
                             )}
                           </TableCell>
                           <TableCell className="text-right">{p.vendido}</TableCell>
                           <TableCell className="text-right">{formatCurrency(p.precioVenta)}</TableCell>
                           <TableCell className="text-right">{formatCurrency(p.precioCompra)}</TableCell>
                           <TableCell className="text-right font-medium">{formatCurrency(p.importe)}</TableCell>
-                          <TableCell className={cn('text-right font-medium', p.ganancia >= 0 ? 'text-green-600' : 'text-red-600')}>
+                          <TableCell className={cn('text-right font-medium', p.ganancia >= 0 ? 'text-success' : 'text-destructive')}>
                             {formatCurrency(p.ganancia)}
                           </TableCell>
                           <TableCell className="text-right">
@@ -394,7 +392,7 @@ export default function ReporteVentaDiaria() {
                       <TableCell className="text-right font-bold">{unidadesVendidas}</TableCell>
                       <TableCell colSpan={2} />
                       <TableCell className="text-right font-bold">{formatCurrency(totalImporte)}</TableCell>
-                      <TableCell className={cn('text-right font-bold', gananciaReal >= 0 ? 'text-green-600' : 'text-red-600')}>
+                      <TableCell className={cn('text-right font-bold', gananciaReal >= 0 ? 'text-success' : 'text-destructive')}>
                         {formatCurrency(gananciaReal)}
                       </TableCell>
                       <TableCell className="text-right font-bold">
@@ -407,7 +405,7 @@ export default function ReporteVentaDiaria() {
 
               {/* Vista de tarjetas (móvil) */}
               <div className="md:hidden space-y-3">
-                {productosDelDia.lista.map((p) => {
+                {productosPaginados.pageItems.map((p) => {
                   const pct = p.importe > 0 ? round2((p.ganancia / p.importe) * 100) : null;
                   return (
                     <Card key={p.productoId} className="p-0">
@@ -416,35 +414,35 @@ export default function ReporteVentaDiaria() {
                           <div className="min-w-0">
                             <p className="font-medium truncate">{p.nombre}</p>
                             {!p.existeProducto && (
-                              <p className="text-xs text-amber-600">Producto no encontrado (PC = $0)</p>
+                              <p className="text-xs text-warning-foreground">Producto no encontrado (PC = $0)</p>
                             )}
                           </div>
                           <p className="text-sm font-bold shrink-0">{formatCurrency(p.importe)}</p>
                         </div>
                         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                           <div className="min-w-0">
-                            <dt className="text-xs text-slate-500">Vendido</dt>
+                            <dt className="text-xs text-muted-foreground">Vendido</dt>
                             <dd>{p.vendido}</dd>
                           </div>
                           <div className="min-w-0">
-                            <dt className="text-xs text-slate-500">% Margen</dt>
+                            <dt className="text-xs text-muted-foreground">% Margen</dt>
                             <dd>{pct !== null ? formatMargen(pct) : '—'}</dd>
                           </div>
                           <div className="min-w-0">
-                            <dt className="text-xs text-slate-500">Precio Venta</dt>
+                            <dt className="text-xs text-muted-foreground">Precio Venta</dt>
                             <dd>{formatCurrency(p.precioVenta)}</dd>
                           </div>
                           <div className="min-w-0">
-                            <dt className="text-xs text-slate-500">Precio Compra</dt>
+                            <dt className="text-xs text-muted-foreground">Precio Compra</dt>
                             <dd>{formatCurrency(p.precioCompra)}</dd>
                           </div>
                           <div className="min-w-0">
-                            <dt className="text-xs text-slate-500">Importe</dt>
+                            <dt className="text-xs text-muted-foreground">Importe</dt>
                             <dd className="font-bold">{formatCurrency(p.importe)}</dd>
                           </div>
                           <div className="min-w-0">
-                            <dt className="text-xs text-slate-500">Ganancia</dt>
-                            <dd className={cn('font-bold', p.ganancia >= 0 ? 'text-green-600' : 'text-red-600')}>
+                            <dt className="text-xs text-muted-foreground">Ganancia</dt>
+                            <dd className={cn('font-bold', p.ganancia >= 0 ? 'text-success' : 'text-destructive')}>
                               {formatCurrency(p.ganancia)}
                             </dd>
                           </div>
@@ -454,6 +452,12 @@ export default function ReporteVentaDiaria() {
                   );
                 })}
               </div>
+
+              <TablePagination
+                page={productosPaginados.page}
+                pageCount={productosPaginados.pageCount}
+                setPage={productosPaginados.setPage}
+              />
             </CardContent>
           </Card>
 
@@ -464,29 +468,29 @@ export default function ReporteVentaDiaria() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="rounded-lg border p-4">
-                  <p className="text-sm text-slate-500">Importe productos</p>
+                <div className="rounded-lg border border-border p-4">
+                  <p className="text-sm text-muted-foreground">Importe productos</p>
                   <p className="text-xl font-bold">{formatCurrency(totalImporte)}</p>
-                  <p className="text-xs text-slate-400 mt-1">Suma del IPVE del día</p>
+                  <p className="text-xs text-muted-foreground mt-1">Suma del IPVE del día</p>
                 </div>
-                <div className="rounded-lg border p-4">
-                  <p className="text-sm text-slate-500">Ganancia real</p>
-                  <p className={cn('text-xl font-bold', gananciaReal >= 0 ? 'text-green-600' : 'text-red-600')}>
+                <div className="rounded-lg border border-border p-4">
+                  <p className="text-sm text-muted-foreground">Ganancia real</p>
+                  <p className={cn('text-xl font-bold', gananciaReal >= 0 ? 'text-success' : 'text-destructive')}>
                     {formatCurrency(gananciaReal)}
                   </p>
-                  <p className="text-xs text-slate-400 mt-1">Ventas − costo de compra</p>
+                  <p className="text-xs text-muted-foreground mt-1">Ventas − costo de compra</p>
                 </div>
-                <div className="rounded-lg border p-4">
-                  <p className="text-sm text-slate-500">Salarios del día</p>
-                  <p className="text-xl font-bold text-slate-600">{formatCurrency(dia.salariosHoy)}</p>
-                  <p className="text-xs text-slate-400 mt-1">Suma de salarios calculados</p>
+                <div className="rounded-lg border border-border p-4">
+                  <p className="text-sm text-muted-foreground">Salarios del día</p>
+                  <p className="text-xl font-bold text-muted-foreground">{formatCurrency(dia.salariosHoy)}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Suma de salarios calculados</p>
                 </div>
-                <div className="rounded-lg border p-4">
-                  <p className="text-sm text-slate-500">Ganancia neta</p>
-                  <p className={cn('text-xl font-bold', gananciaNeta >= 0 ? 'text-green-600' : 'text-red-600')}>
+                <div className="rounded-lg border border-border p-4">
+                  <p className="text-sm text-muted-foreground">Ganancia neta</p>
+                  <p className={cn('text-xl font-bold', gananciaNeta >= 0 ? 'text-success' : 'text-destructive')}>
                     {formatCurrency(gananciaNeta)}
                   </p>
-                  <p className="text-xs text-slate-400 mt-1">Ganancia real − salarios</p>
+                  <p className="text-xs text-muted-foreground mt-1">Ganancia real − salarios</p>
                 </div>
               </div>
             </CardContent>

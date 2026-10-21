@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import {
-  CalendarIcon, Edit, Trash, MoreHorizontal, User, DollarSign, FileSpreadsheet, Banknote, HandCoins, Loader2
+  CalendarIcon, Edit, Trash, MoreHorizontal, User, DollarSign, FileSpreadsheet, Banknote, HandCoins, Loader2, Receipt, SearchX
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,7 +15,6 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
@@ -26,6 +26,10 @@ import {
   Popover, PopoverContent, PopoverTrigger as PopoverTriggerRoot
 } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  PageHeader, SearchInput, EmptyState, SkeletonTable, SkeletonCards,
+  StatusBadge, usePagination, TablePagination
+} from '@/components/shared';
 import { useVentasDiarias, useVendedores, useFiados, useRegistrosIPVE, formatCurrency, formatDate, toFechaLocal } from '@/hooks/supabase/useSupabaseData';
 import { useAuth } from '@/contexts/AuthContext';
 import type { VentaDiaria, Vendedor } from '@/types';
@@ -96,8 +100,8 @@ function VentaForm({
     <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div className="space-y-2">
         <Label htmlFor="vendedorId">Vendedor</Label>
-        <Select 
-          value={formData.vendedorId} 
+        <Select
+          value={formData.vendedorId}
           onValueChange={(val) => handleChange('vendedorId', val)}
         >
           <SelectTrigger>
@@ -166,10 +170,10 @@ function VentaForm({
 
       <div className="md:col-span-2 space-y-2">
         <Label htmlFor="notas">Notas (Opcional)</Label>
-        <Textarea 
+        <Textarea
           value={formData.notas}
           onChange={(e) => handleChange('notas', e.target.value)}
-          placeholder="Anotaciones sobre la venta..." 
+          placeholder="Anotaciones sobre la venta..."
         />
       </div>
 
@@ -190,21 +194,22 @@ function VentaForm({
 
 export default function Ventas() {
   const { user } = useAuth();
-  const { 
-    data: ventas, 
-    create: agregarVentaDiaria, 
-    update: actualizarVentaDiaria, 
+  const {
+    data: ventas,
+    loading,
+    create: agregarVentaDiaria,
+    update: actualizarVentaDiaria,
     delete: eliminarVentaDiaria,
   } = useVentasDiarias();
-  
-  const { 
-    data: vendedores 
+
+  const {
+    data: vendedores
   } = useVendedores();
-  
-  const { 
-    create: agregarFiado 
+
+  const {
+    create: agregarFiado
   } = useFiados();
-  
+
   const { data: registrosIpve } = useRegistrosIPVE();
 
   // Importe IPVE (tipo historico) del vendedor para una fecha local dada.
@@ -216,7 +221,7 @@ export default function Ventas() {
     if (regs.length === 0) return null;
     return regs.reduce((sum, r) => sum + (r.inicio + r.entrada - r.final) * r.precioVenta, 0);
   };
-  
+
   const [editingVenta, setEditingVenta] = useState<VentaDiaria | null>(null);
   const [deleteVenta, setDeleteVenta] = useState<VentaDiaria | null>(null);
   const [historialIpveOpen, setHistorialIpveOpen] = useState(false);
@@ -228,10 +233,19 @@ export default function Ventas() {
   const [fiadoDialogOpen, setFiadoDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const sortedVentas = useMemo(() => {
     return [...ventas].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
   }, [ventas]);
+
+  const filteredVentas = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return sortedVentas;
+    return sortedVentas.filter(v => v.vendedorNombre.toLowerCase().includes(q));
+  }, [sortedVentas, searchQuery]);
+
+  const { pageItems, page, pageCount, setPage, reset } = usePagination(filteredVentas, 10);
 
   const handleAddSubmit = (data: NuevoRegistro) => {
     setConfirmVenta(data);
@@ -241,7 +255,7 @@ export default function Ventas() {
     setFiadoDialogOpen(true);
   };
 
-const handleConfirmVenta = async () => {
+  const handleConfirmVenta = async () => {
     if (savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
@@ -263,12 +277,13 @@ const handleConfirmVenta = async () => {
         vendedorNombre: vendedor.nombre,
         diferenciaCaja,
       });
+      toast.success('Venta registrada');
       setContadorConfirmado(null);
       setContadorBilletes({});
       setConfirmVenta(null);
     } catch (error) {
       console.error('Error guardando venta:', error);
-      alert('Error al guardar la venta');
+      toast.error('Error al guardar la venta');
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -279,7 +294,7 @@ const handleConfirmVenta = async () => {
     if (!editingVenta) return;
     const vendedor = vendedores.find(v => v.id === data.vendedorId);
     if (!vendedor) return;
-    
+
     try {
       const fechaLocal = toFechaLocal(data.fecha);
       const ipve = ipveImporteDelDia(data.vendedorId, fechaLocal);
@@ -293,21 +308,23 @@ const handleConfirmVenta = async () => {
           vendedorNombre: vendedor.nombre,
           diferenciaCaja,
       });
+      toast.success('Venta actualizada');
       setEditingVenta(null);
     } catch (error) {
       console.error('Error actualizando venta:', error);
-      alert('Error al actualizar la venta');
+      toast.error('Error al actualizar la venta');
     }
   };
-   
+
   const handleDelete = async () => {
     if (deleteVenta) {
       try {
         await eliminarVentaDiaria(deleteVenta.id);
+        toast.success('Venta eliminada');
         setDeleteVenta(null);
       } catch (error) {
         console.error('Error eliminando venta:', error);
-        alert('Error al eliminar la venta');
+        toast.error('Error al eliminar la venta');
       }
     }
   }
@@ -338,9 +355,14 @@ const handleConfirmVenta = async () => {
       .reduce((sum, v) => sum + v.salarioCalculado, 0);
   }, [ventas]);
 
-
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Ventas"
+        description="Cierre diario de ventas por vendedor e historial"
+        icon={DollarSign}
+      />
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -383,8 +405,8 @@ const handleConfirmVenta = async () => {
           <CardTitle>Registrar Cierre de Ventas Diario</CardTitle>
         </CardHeader>
         <CardContent>
-          <VentaForm 
-            vendedores={vendedores} 
+          <VentaForm
+            vendedores={vendedores}
             onSubmit={handleAddSubmit}
             contadorConfirmado={contadorConfirmado}
             onOpenContador={() => setContadorOpen(true)}
@@ -395,134 +417,160 @@ const handleConfirmVenta = async () => {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle>Historial de Ventas Diarias</CardTitle>
+          <SearchInput
+            value={searchQuery}
+            onChange={(v) => { setSearchQuery(v); reset(); }}
+            placeholder="Buscar por vendedor..."
+          />
         </CardHeader>
         <CardContent>
-          {/* Vista de tabla (escritorio) */}
-          <div className="hidden md:block">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Vendedor</TableHead>
-                  <TableHead>Monto Efectivo</TableHead>
-                  <TableHead>Monto Transferencia</TableHead>
-                  <TableHead>Total Vendido</TableHead>
-                  <TableHead>Salario del Día</TableHead>
-                  <TableHead>Diferencia</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sortedVentas.map(venta => (
-                  <TableRow key={venta.id}>
-                    <TableCell>{formatDate(venta.fecha)}</TableCell>
-                    <TableCell>{venta.vendedorNombre}</TableCell>
-                    <TableCell>{formatCurrency(venta.montoEfectivo)}</TableCell>
-                    <TableCell>{formatCurrency(venta.montoTransferencia)}</TableCell>
-                    <TableCell className="font-bold">{formatCurrency(venta.totalVendido)}</TableCell>
-                    <TableCell className="text-green-600 font-bold">{formatCurrency(venta.salarioCalculado)}</TableCell>
-                    <TableCell>
-                      {venta.diferenciaCaja === null || venta.diferenciaCaja === undefined ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : venta.diferenciaCaja > 0 ? (
-                        <Badge className="bg-green-500">+{formatCurrency(venta.diferenciaCaja)}</Badge>
-                      ) : venta.diferenciaCaja < 0 ? (
-                        <Badge className="bg-red-500">−{formatCurrency(Math.abs(venta.diferenciaCaja))}</Badge>
-                      ) : (
-                        <Badge variant="outline">✓</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" className="h-8 w-8 p-0">
-                            <span className="sr-only">Abrir menú</span>
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setEditingVenta(venta)}>
-                            <Edit className="mr-2 h-4 w-4" /> Editar
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-red-500" onClick={() => setDeleteVenta(venta)}>
-                            <Trash className="mr-2 h-4 w-4" /> Eliminar
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          {loading ? (
+            <>
+              <div className="hidden md:block">
+                <SkeletonTable rows={5} cols={8} />
+              </div>
+              <div className="md:hidden">
+                <SkeletonCards count={3} />
+              </div>
+            </>
+          ) : filteredVentas.length === 0 ? (
+            <EmptyState
+              icon={searchQuery ? SearchX : Receipt}
+              title={searchQuery ? 'Sin resultados' : 'No hay ventas registradas'}
+              description={
+                searchQuery
+                  ? 'Ninguna venta coincide con tu búsqueda.'
+                  : 'Registra el cierre diario de cada vendedor para verlo aquí.'
+              }
+            />
+          ) : (
+            <>
+              {/* Vista de tabla (escritorio) */}
+              <div className="hidden md:block">
+                <Table className="[&_td]:py-3 [&_th]:py-3">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Vendedor</TableHead>
+                      <TableHead>Monto Efectivo</TableHead>
+                      <TableHead>Monto Transferencia</TableHead>
+                      <TableHead>Total Vendido</TableHead>
+                      <TableHead>Salario del Día</TableHead>
+                      <TableHead>Diferencia</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pageItems.map(venta => (
+                      <TableRow key={venta.id}>
+                        <TableCell>{formatDate(venta.fecha)}</TableCell>
+                        <TableCell>{venta.vendedorNombre}</TableCell>
+                        <TableCell>{formatCurrency(venta.montoEfectivo)}</TableCell>
+                        <TableCell>{formatCurrency(venta.montoTransferencia)}</TableCell>
+                        <TableCell className="font-bold">{formatCurrency(venta.totalVendido)}</TableCell>
+                        <TableCell className="text-success font-bold">{formatCurrency(venta.salarioCalculado)}</TableCell>
+                        <TableCell>
+                          {venta.diferenciaCaja === null || venta.diferenciaCaja === undefined ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : venta.diferenciaCaja > 0 ? (
+                            <StatusBadge tone="success">+{formatCurrency(venta.diferenciaCaja)}</StatusBadge>
+                          ) : venta.diferenciaCaja < 0 ? (
+                            <StatusBadge tone="danger">−{formatCurrency(Math.abs(venta.diferenciaCaja))}</StatusBadge>
+                          ) : (
+                            <StatusBadge tone="neutral">✓</StatusBadge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" className="h-8 w-8 p-0">
+                                <span className="sr-only">Abrir menú</span>
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => setEditingVenta(venta)}>
+                                <Edit className="mr-2 h-4 w-4" /> Editar
+                              </DropdownMenuItem>
+                              <DropdownMenuItem className="text-destructive" onClick={() => setDeleteVenta(venta)}>
+                                <Trash className="mr-2 h-4 w-4" /> Eliminar
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
 
-          {/* Vista de tarjetas (móvil) */}
-          <div className="md:hidden space-y-3">
-            {sortedVentas.length === 0 ? (
-              <p className="text-center py-8 text-slate-500">No hay ventas registradas</p>
-            ) : (
-              sortedVentas.map(venta => (
-                <Card key={venta.id} className="p-0">
-                  <CardContent className="p-4 space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-medium truncate">{venta.vendedorNombre}</p>
-                        <p className="text-xs text-slate-500">{formatDate(venta.fecha)}</p>
+              {/* Vista de tarjetas (móvil) */}
+              <div className="md:hidden space-y-3">
+                {pageItems.map(venta => (
+                  <Card key={venta.id} className="p-0">
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{venta.vendedorNombre}</p>
+                          <p className="text-xs text-muted-foreground">{formatDate(venta.fecha)}</p>
+                        </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" className="h-8 w-8 p-0 shrink-0">
+                              <span className="sr-only">Abrir menú</span>
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setEditingVenta(venta)}>
+                              <Edit className="mr-2 h-4 w-4" /> Editar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive" onClick={() => setDeleteVenta(venta)}>
+                              <Trash className="mr-2 h-4 w-4" /> Eliminar
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" className="h-8 w-8 p-0 shrink-0">
-                            <span className="sr-only">Abrir menú</span>
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setEditingVenta(venta)}>
-                            <Edit className="mr-2 h-4 w-4" /> Editar
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-red-500" onClick={() => setDeleteVenta(venta)}>
-                            <Trash className="mr-2 h-4 w-4" /> Eliminar
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                      <div className="min-w-0">
-                        <dt className="text-xs text-slate-500">Monto Efectivo</dt>
-                        <dd>{formatCurrency(venta.montoEfectivo)}</dd>
-                      </div>
-                      <div className="min-w-0">
-                        <dt className="text-xs text-slate-500">Monto Transferencia</dt>
-                        <dd>{formatCurrency(venta.montoTransferencia)}</dd>
-                      </div>
-                      <div className="min-w-0">
-                        <dt className="text-xs text-slate-500">Total Vendido</dt>
-                        <dd className="font-bold">{formatCurrency(venta.totalVendido)}</dd>
-                      </div>
-                      <div className="min-w-0">
-                        <dt className="text-xs text-slate-500">Salario del Día</dt>
-                        <dd className="text-green-600 font-bold">{formatCurrency(venta.salarioCalculado)}</dd>
-                      </div>
-                      <div className="min-w-0">
-                        <dt className="text-xs text-slate-500">Diferencia</dt>
-                        <dd>
-                          {venta.diferenciaCaja === null || venta.diferenciaCaja === undefined
-                            ? <span className="text-slate-400">—</span>
-                            : venta.diferenciaCaja > 0
-                              ? <span className="text-green-600 font-semibold">Sobrante {formatCurrency(venta.diferenciaCaja)}</span>
-                              : venta.diferenciaCaja < 0
-                                ? <span className="text-red-600 font-semibold">Faltante {formatCurrency(Math.abs(venta.diferenciaCaja))}</span>
-                                : <span className="text-slate-500">✓ Cuadra</span>}
-                        </dd>
-                      </div>
-                    </dl>
-                  </CardContent>
-                </Card>
-              ))
-            )}
-          </div>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">Monto Efectivo</dt>
+                          <dd>{formatCurrency(venta.montoEfectivo)}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">Monto Transferencia</dt>
+                          <dd>{formatCurrency(venta.montoTransferencia)}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">Total Vendido</dt>
+                          <dd className="font-bold">{formatCurrency(venta.totalVendido)}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">Salario del Día</dt>
+                          <dd className="text-success font-bold">{formatCurrency(venta.salarioCalculado)}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">Diferencia</dt>
+                          <dd>
+                            {venta.diferenciaCaja === null || venta.diferenciaCaja === undefined
+                              ? <span className="text-muted-foreground">—</span>
+                              : venta.diferenciaCaja > 0
+                                ? <span className="text-success font-semibold">Sobrante {formatCurrency(venta.diferenciaCaja)}</span>
+                                : venta.diferenciaCaja < 0
+                                  ? <span className="text-destructive font-semibold">Faltante {formatCurrency(Math.abs(venta.diferenciaCaja))}</span>
+                                  : <span className="text-muted-foreground">✓ Cuadra</span>}
+                          </dd>
+                        </div>
+                      </dl>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              <TablePagination page={page} pageCount={pageCount} setPage={setPage} />
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -533,8 +581,8 @@ const handleConfirmVenta = async () => {
                 <DialogTitle>Editar Venta Diaria</DialogTitle>
             </DialogHeader>
             {editingVenta && (
-              <VentaForm 
-                  vendedores={vendedores} 
+              <VentaForm
+                  vendedores={vendedores}
                   onSubmit={handleEditSubmit}
                   isEdit={true}
                   defaultValues={{
@@ -592,7 +640,7 @@ const handleConfirmVenta = async () => {
                         <p><strong>IPVE del día:</strong> {formatCurrency(confirmacionCierre.ipve)}</p>
                     )}
                     {confirmacionCierre?.diferencia !== null && confirmacionCierre?.diferencia !== undefined && (
-                        <p className={confirmacionCierre.diferencia > 0 ? 'text-green-600' : confirmacionCierre.diferencia < 0 ? 'text-red-600' : ''}>
+                        <p className={confirmacionCierre.diferencia > 0 ? 'text-success' : confirmacionCierre.diferencia < 0 ? 'text-destructive' : ''}>
                             <strong>{confirmacionCierre.diferencia > 0 ? 'Sobrante' : confirmacionCierre.diferencia < 0 ? 'Faltante' : 'Cuadra con el IPVE'}:</strong>{' '}
                             {formatCurrency(Math.abs(confirmacionCierre.diferencia))}
                         </p>

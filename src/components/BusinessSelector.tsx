@@ -20,21 +20,21 @@ export function BusinessSelector() {
   return (
     <div className="flex items-center gap-2">
       <Select value={currentBusiness?.id || ''} onValueChange={switchBusiness}>
-        <SelectTrigger className="w-48 sm:w-56 h-9 bg-transparent border-slate-300 data-[state=open]:border-blue-500">
-          <Building2 className="w-4 h-4 mr-2 text-slate-500" />
+        <SelectTrigger className="h-9 w-48 border-input bg-transparent sm:w-56 data-[state=open]:border-ring">
+          <Building2 className="mr-2 size-4 text-muted-foreground" aria-hidden />
           <SelectValue placeholder="Seleccionar negocio" className="truncate" />
         </SelectTrigger>
         <SelectContent position="popper" sideOffset={5}>
           {businesses.map(biz => (
             <SelectItem key={biz.id} value={biz.id} className="flex items-center gap-2">
-              <Building2 className="w-4 h-4" />
+              <Building2 className="size-4" aria-hidden />
               <div className="flex-1 text-left">
-                <p className="font-medium truncate">{biz.nombre}</p>
-                <p className="text-xs text-slate-500 truncate">{biz.slug}</p>
+                <p className="truncate font-medium">{biz.nombre}</p>
+                <p className="truncate text-xs text-muted-foreground">{biz.slug}</p>
               </div>
               {biz.is_owner && (
                 <span title="Eres el dueño">
-                  <Settings className="w-3 h-3 text-green-500" />
+                  <Settings className="size-3 text-success" aria-hidden />
                 </span>
               )}
             </SelectItem>
@@ -43,7 +43,7 @@ export function BusinessSelector() {
       </Select>
 
       <Button variant="ghost" size="icon" onClick={logout} title="Cerrar sesión" className="h-9 w-9">
-        <LogOut className="h-4 w-4" />
+        <LogOut className="size-4" aria-hidden />
       </Button>
     </div>
   )
@@ -61,21 +61,23 @@ export function UserAvatar() {
     .toUpperCase()
     .slice(0, 2)
 
+  // Tonos suaves del sistema: jefe (marca), comprador (éxito),
+  // vendedor (advertencia/ámbar), resto en neutro.
   const roleColors: Record<string, string> = {
-    jefe: 'bg-purple-500',
-    admin: 'bg-blue-500',
-    comprador: 'bg-green-500',
-    vendedor: 'bg-orange-500'
+    jefe: 'bg-primary/15 text-primary',
+    admin: 'bg-muted text-muted-foreground',
+    comprador: 'bg-success/15 text-success',
+    vendedor: 'bg-warning/15 text-warning-foreground'
   }
 
   return (
-    <div className="flex items-center gap-2 ml-2">
-      <div className={cn('w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium', roleColors[user.role])}>
+    <div className="ml-2 flex items-center gap-2">
+      <div className={cn('flex size-8 items-center justify-center rounded-full text-sm font-medium', roleColors[user.role] ?? 'bg-muted text-muted-foreground')}>
         {initials}
       </div>
-      <div className="hidden sm:block text-left">
-        <p className="text-sm font-medium text-slate-700 truncate max-w-[120px]">{user.nombre}</p>
-        <p className="text-xs text-slate-500 capitalize">{user.role}</p>
+      <div className="hidden text-left sm:block">
+        <p className="max-w-[120px] truncate text-sm font-medium text-foreground">{user.nombre}</p>
+        <p className="text-xs capitalize text-muted-foreground">{user.role}</p>
       </div>
     </div>
   )

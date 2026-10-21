@@ -1,39 +1,44 @@
-import { useState, useRef } from 'react';
-import { 
-  Plus, Search, Trash2, Receipt, Calendar, Eye, Loader2
+import { useState, useRef, useMemo } from 'react';
+import {
+  Plus, Trash2, Receipt, Calendar, Eye, Loader2, SearchX
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { toast } from 'sonner';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { 
-  Dialog, DialogContent, DialogHeader, DialogTitle, 
-  DialogDescription, DialogFooter 
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogDescription, DialogFooter
 } from '@/components/ui/dialog';
-import { 
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue 
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
-import { 
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
+import {
+  PageHeader, SearchInput, EmptyState, SkeletonTable, SkeletonCards,
+  StatusBadge, usePagination, TablePagination
+} from '@/components/shared';
 import { useCompras, useCompradores, useProductos, formatCurrency, formatDate, toFechaLocal } from '@/hooks/supabase/useSupabaseData';
 import type { Compra, DetalleCompra, Comprador, Producto } from '@/types';
 
 export default function Compras() {
-  const { 
-    data: compras, 
-    create: agregarCompra, 
-    update: cancelarCompra 
+  const {
+    data: compras,
+    loading,
+    create: agregarCompra,
+    update: cancelarCompra
   } = useCompras();
-  
-  const { 
-    data: compradores 
+
+  const {
+    data: compradores
   } = useCompradores();
-  
-  const { 
-    data: productos, 
+
+  const {
+    data: productos,
     getById: getProductoById,
     update: actualizarProducto
   } = useProductos();
@@ -45,7 +50,7 @@ export default function Compras() {
 
   const buscarProductos = (query: string) => {
     const q = query.toLowerCase();
-    return productos.filter(p => 
+    return productos.filter(p =>
       p.activo && (
         p.nombre.toLowerCase().includes(q) ||
         p.codigo.toLowerCase().includes(q) ||
@@ -55,7 +60,7 @@ export default function Compras() {
   };
 
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   // Estado para nueva compra
   const [nuevaCompraOpen, setNuevaCompraOpen] = useState(false);
   const [compradorSearch, setCompradorSearch] = useState('');
@@ -70,11 +75,17 @@ export default function Compras() {
   const savingRef = useRef(false);
 
   const filteredCompras = searchQuery
-    ? compras.filter((c: Compra) => 
+    ? compras.filter((c: Compra) =>
         c.compradorNombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
         c.id.toLowerCase().includes(searchQuery.toLowerCase())
       )
     : compras;
+
+  const comprasOrdenadas = useMemo(
+    () => filteredCompras.slice().reverse(),
+    [filteredCompras]
+  );
+  const { pageItems, page, pageCount, setPage, reset } = usePagination(comprasOrdenadas, 10);
 
   const filteredCompradores = compradorSearch ? buscarCompradores(compradorSearch) : [];
   const filteredProductos = productoSearch ? buscarProductos(productoSearch) : [];
@@ -84,14 +95,14 @@ export default function Compras() {
 
   const handleAddProducto = (producto: Producto) => {
     const existingIndex = detalles.findIndex((d: DetalleCompra) => d.productoId === producto.id);
-    
+
     if (existingIndex >= 0) {
       // Actualizar cantidad si ya existe
       const newDetalles = [...detalles];
       const detalle = newDetalles[existingIndex];
       const newCantidad = detalle.cantidad + 1;
       const newSubtotal = newCantidad * detalle.precioUnitario;
-      
+
       newDetalles[existingIndex] = {
         ...detalle,
         cantidad: newCantidad,
@@ -102,7 +113,7 @@ export default function Compras() {
       // Agregar nuevo detalle
       const precioUnitario = producto.precioCompra;
       const subtotalDetalle = precioUnitario;
-      
+
       const nuevoDetalle: DetalleCompra = {
         productoId: producto.id,
         productoNombre: producto.nombre,
@@ -120,11 +131,11 @@ export default function Compras() {
       handleRemoveDetalle(index);
       return;
     }
-    
+
     const newDetalles = [...detalles];
     const detalle = newDetalles[index];
     const newSubtotal = cantidad * detalle.precioUnitario;
-    
+
     newDetalles[index] = {
       ...detalle,
       cantidad,
@@ -135,11 +146,11 @@ export default function Compras() {
 
   const handleUpdatePrecio = (index: number, precio: number) => {
     if (precio < 0) return;
-    
+
     const newDetalles = [...detalles];
     const detalle = newDetalles[index];
     const newSubtotal = detalle.cantidad * precio;
-    
+
     newDetalles[index] = {
       ...detalle,
       precioUnitario: precio,
@@ -172,7 +183,8 @@ export default function Compras() {
       };
 
       await agregarCompra(compra);
-    
+      toast.success('Compra registrada');
+
       if (updateInventory) {
         for (const detalle of detalles) {
           const producto = getProductoById(detalle.productoId);
@@ -184,7 +196,7 @@ export default function Compras() {
           }
         }
       }
-    
+
       // Resetear formulario
       setDetalles([]);
       setSelectedComprador(null);
@@ -199,14 +211,24 @@ export default function Compras() {
     }
   };
 
+  const handleCancelarCompra = async (compra: Compra) => {
+    try {
+      await cancelarCompra(compra.id, { estado: 'cancelada' });
+      toast.success('Compra cancelada');
+    } catch (error) {
+      console.error('Error cancelando compra:', error);
+      toast.error('Error al cancelar la compra');
+    }
+  };
+
   const getEstadoBadge = (estado: Compra['estado']) => {
     switch (estado) {
       case 'completada':
-        return <Badge className="bg-green-500">Completada</Badge>;
+        return <StatusBadge tone="success">Completada</StatusBadge>;
       case 'pendiente':
-        return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">Pendiente</Badge>;
+        return <StatusBadge tone="warning">Pendiente</StatusBadge>;
       case 'cancelada':
-        return <Badge variant="destructive">Cancelada</Badge>;
+        return <StatusBadge tone="danger">Cancelada</StatusBadge>;
     }
   };
 
@@ -220,8 +242,8 @@ export default function Compras() {
     return labels[metodo];
   };
 
-  const comprasHoy = compras.filter((c: Compra) => 
-    new Date(c.fecha).toDateString() === new Date().toDateString() && 
+  const comprasHoy = compras.filter((c: Compra) =>
+    new Date(c.fecha).toDateString() === new Date().toDateString() &&
     c.estado === 'completada'
   );
   const totalComprasHoy = comprasHoy.reduce((sum: number, c: Compra) => sum + c.total, 0);
@@ -234,17 +256,29 @@ export default function Compras() {
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Compras"
+        description="Historial y registro de compras por comprador"
+        icon={Receipt}
+        actions={
+          <Button onClick={() => setNuevaCompraOpen(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Nueva Compra
+          </Button>
+        }
+      />
+
       {/* Estadísticas */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Compras Hoy</p>
+                <p className="text-sm text-muted-foreground">Compras Hoy</p>
                 <p className="text-2xl font-bold">{formatCurrency(totalComprasHoy)}</p>
-                <p className="text-xs text-slate-400">{comprasHoy.length} compras</p>
+                <p className="text-xs text-muted-foreground">{comprasHoy.length} compras</p>
               </div>
-              <Receipt className="w-8 h-8 text-blue-500" />
+              <Receipt className="w-8 h-8 text-primary shrink-0" />
             </div>
           </CardContent>
         </Card>
@@ -252,11 +286,11 @@ export default function Compras() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Compras del Mes</p>
+                <p className="text-sm text-muted-foreground">Compras del Mes</p>
                 <p className="text-2xl font-bold">{formatCurrency(totalComprasMes)}</p>
-                <p className="text-xs text-slate-400">{comprasMes.length} compras</p>
+                <p className="text-xs text-muted-foreground">{comprasMes.length} compras</p>
               </div>
-              <Calendar className="w-8 h-8 text-green-500" />
+              <Calendar className="w-8 h-8 text-success shrink-0" />
             </div>
           </CardContent>
         </Card>
@@ -264,9 +298,9 @@ export default function Compras() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Total Compras</p>
+                <p className="text-sm text-muted-foreground">Total Compras</p>
                 <p className="text-2xl font-bold">{compras.length}</p>
-                <p className="text-xs text-slate-400">Registradas</p>
+                <p className="text-xs text-muted-foreground">Registradas</p>
               </div>
             </div>
           </CardContent>
@@ -275,128 +309,140 @@ export default function Compras() {
 
       {/* Lista de Compras */}
       <Card>
-        <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <CardTitle className="text-lg">Historial de Compras</CardTitle>
-          <div className="flex gap-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <Input
-                placeholder="Buscar compras..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 w-full sm:w-64"
-              />
-            </div>
-            <Button onClick={() => setNuevaCompraOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nueva Compra
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {/* Vista de tabla (escritorio) */}
-          <div className="hidden md:block">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Comprador</TableHead>
-                  <TableHead>Método de Pago</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredCompras.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-slate-500">
-                      No se encontraron compras
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredCompras.slice().reverse().map((compra: Compra) => (
-                    <TableRow key={compra.id}>
-                      <TableCell className="font-medium">#{compra.id.slice(-6)}</TableCell>
-                      <TableCell>{formatDate(compra.fecha)}</TableCell>
-                      <TableCell>{compra.compradorNombre}</TableCell>
-                      <TableCell>
-                        <span className="capitalize">{getMetodoPagoLabel(compra.metodoPago)}</span>
-                      </TableCell>
-                      <TableCell className="text-right font-medium">{formatCurrency(compra.total)}</TableCell>
-                      <TableCell>{getEstadoBadge(compra.estado)}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="icon" onClick={() => setSelectedCompra(compra)} title="Ver detalles">
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                          {compra.estado !== 'cancelada' && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => cancelarCompra(compra.id, { estado: 'cancelada' })}
-                              className="text-red-500 hover:text-red-700"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+        <CardContent className="pt-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">Historial de Compras</h2>
+            <SearchInput
+              value={searchQuery}
+              onChange={(v) => { setSearchQuery(v); reset(); }}
+              placeholder="Buscar compras..."
+            />
           </div>
 
-          {/* Vista de tarjetas (móvil) */}
-          <div className="md:hidden space-y-3">
-            {filteredCompras.length === 0 ? (
-              <p className="text-center py-8 text-slate-500">No se encontraron compras</p>
-            ) : (
-              filteredCompras.slice().reverse().map((compra: Compra) => (
-                <Card key={compra.id} className="p-0">
-                  <CardContent className="p-4 space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-medium truncate">{compra.compradorNombre}</p>
-                        <p className="text-xs text-slate-500">#{compra.id.slice(-6)} · {formatDate(compra.fecha)}</p>
+          {loading ? (
+            <>
+              <div className="hidden md:block">
+                <SkeletonTable rows={5} cols={7} />
+              </div>
+              <div className="md:hidden">
+                <SkeletonCards count={3} />
+              </div>
+            </>
+          ) : filteredCompras.length === 0 ? (
+            <EmptyState
+              icon={searchQuery ? SearchX : Receipt}
+              title={searchQuery ? 'Sin resultados' : 'No hay compras'}
+              description={
+                searchQuery
+                  ? 'Ninguna compra coincide con tu búsqueda.'
+                  : 'Registra tu primera compra para llevar el control de inventario.'
+              }
+              action={
+                !searchQuery ? (
+                  <Button onClick={() => setNuevaCompraOpen(true)}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Nueva Compra
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <>
+              {/* Vista de tabla (escritorio) */}
+              <div className="hidden md:block">
+                <Table className="[&_td]:py-3 [&_th]:py-3">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Comprador</TableHead>
+                      <TableHead>Método de Pago</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pageItems.map((compra: Compra) => (
+                      <TableRow key={compra.id}>
+                        <TableCell className="font-medium">#{compra.id.slice(-6)}</TableCell>
+                        <TableCell>{formatDate(compra.fecha)}</TableCell>
+                        <TableCell>{compra.compradorNombre}</TableCell>
+                        <TableCell>
+                          <span className="capitalize">{getMetodoPagoLabel(compra.metodoPago)}</span>
+                        </TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(compra.total)}</TableCell>
+                        <TableCell>{getEstadoBadge(compra.estado)}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button variant="ghost" size="icon" onClick={() => setSelectedCompra(compra)} title="Ver detalles">
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                            {compra.estado !== 'cancelada' && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleCancelarCompra(compra)}
+                                className="text-destructive hover:text-destructive/80"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Vista de tarjetas (móvil) */}
+              <div className="md:hidden space-y-3">
+                {pageItems.map((compra: Compra) => (
+                  <Card key={compra.id} className="p-0">
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{compra.compradorNombre}</p>
+                          <p className="text-xs text-muted-foreground">#{compra.id.slice(-6)} · {formatDate(compra.fecha)}</p>
+                        </div>
+                        <div className="shrink-0">{getEstadoBadge(compra.estado)}</div>
                       </div>
-                      <div className="shrink-0">{getEstadoBadge(compra.estado)}</div>
-                    </div>
-                    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                      <div className="min-w-0">
-                        <dt className="text-xs text-slate-500">Método de Pago</dt>
-                        <dd className="capitalize">{getMetodoPagoLabel(compra.metodoPago)}</dd>
-                      </div>
-                      <div className="min-w-0">
-                        <dt className="text-xs text-slate-500">Total</dt>
-                        <dd className="font-medium">{formatCurrency(compra.total)}</dd>
-                      </div>
-                    </dl>
-                    <div className="flex justify-end gap-2">
-                      <Button variant="outline" size="sm" onClick={() => setSelectedCompra(compra)}>
-                        <Eye className="w-4 h-4 mr-1" />
-                        Ver detalle
-                      </Button>
-                      {compra.estado !== 'cancelada' && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => cancelarCompra(compra.id, { estado: 'cancelada' })}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          <Trash2 className="w-4 h-4 mr-1" />
-                          Cancelar
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">Método de Pago</dt>
+                          <dd className="capitalize">{getMetodoPagoLabel(compra.metodoPago)}</dd>
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-xs text-muted-foreground">Total</dt>
+                          <dd className="font-medium">{formatCurrency(compra.total)}</dd>
+                        </div>
+                      </dl>
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setSelectedCompra(compra)}>
+                          <Eye className="w-4 h-4 mr-1" />
+                          Ver detalle
                         </Button>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
-            )}
-          </div>
+                        {compra.estado !== 'cancelada' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleCancelarCompra(compra)}
+                            className="text-destructive hover:text-destructive/80"
+                          >
+                            <Trash2 className="w-4 h-4 mr-1" />
+                            Cancelar
+                          </Button>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              <TablePagination page={page} pageCount={pageCount} setPage={setPage} />
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -415,10 +461,10 @@ export default function Compras() {
             <div className="space-y-2">
               <Label>Comprador *</Label>
               {selectedComprador ? (
-                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
                   <div>
                     <p className="font-medium">{selectedComprador.nombre}</p>
-                    <p className="text-sm text-slate-500">ID: {selectedComprador.id}</p>
+                    <p className="text-sm text-muted-foreground">ID: {selectedComprador.id}</p>
                   </div>
                   <Button variant="ghost" size="sm" onClick={() => setSelectedComprador(null)}>
                     Cambiar
@@ -426,32 +472,30 @@ export default function Compras() {
                 </div>
               ) : (
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <Input
                     placeholder="Buscar comprador..."
                     value={compradorSearch}
                     onChange={(e) => setCompradorSearch(e.target.value)}
-                    className="pl-10"
                   />
                   {filteredCompradores.length > 0 && compradorSearch && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                    <div className="absolute z-10 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto">
                       {filteredCompradores.map((comprador: Comprador) => (
                         <button
                           key={comprador.id}
-                          className="w-full px-4 py-2 text-left hover:bg-slate-50"
+                          className="w-full px-4 py-2 text-left hover:bg-accent"
                           onClick={() => {
                             setSelectedComprador(comprador);
                             setCompradorSearch('');
                           }}
                         >
                           <p className="font-medium">{comprador.nombre}</p>
-                          <p className="text-sm text-slate-500">ID: {comprador.id}</p>
+                          <p className="text-sm text-muted-foreground">ID: {comprador.id}</p>
                         </button>
                       ))}
                     </div>
                   )}
                   {compradorSearch && filteredCompradores.length === 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg p-4 text-center text-slate-500">
+                    <div className="absolute z-10 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg p-4 text-center text-sm text-muted-foreground">
                       No se encontraron compradores
                     </div>
                   )}
@@ -463,24 +507,22 @@ export default function Compras() {
             <div className="space-y-2">
               <Label>Agregar Productos</Label>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <Input
                   placeholder="Buscar producto..."
                   value={productoSearch}
                   onChange={(e) => setProductoSearch(e.target.value)}
-                  className="pl-10"
                 />
                 {filteredProductos.length > 0 && productoSearch && (
-                  <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  <div className="absolute z-10 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto">
                     {filteredProductos.map((producto: Producto) => (
                       <button
                         key={producto.id}
-                        className="w-full px-4 py-2 text-left hover:bg-slate-50 flex justify-between items-center"
+                        className="w-full px-4 py-2 text-left hover:bg-accent flex justify-between items-center"
                         onClick={() => handleAddProducto(producto)}
                       >
                         <div>
                           <p className="font-medium">{producto.nombre}</p>
-                          <p className="text-sm text-slate-500">Stock: {producto.stock}</p>
+                          <p className="text-sm text-muted-foreground">Stock: {producto.stock}</p>
                         </div>
                         <p className="font-medium">{formatCurrency(producto.precioCompra)}</p>
                       </button>
@@ -492,8 +534,8 @@ export default function Compras() {
 
             {/* Tabla de Detalles */}
             {detalles.length > 0 && (
-              <div className="border rounded-lg overflow-hidden">
-                <Table>
+              <div className="border border-border rounded-lg overflow-hidden">
+                <Table className="[&_td]:py-3 [&_th]:py-3">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Producto</TableHead>
@@ -530,7 +572,7 @@ export default function Compras() {
                             variant="ghost"
                             size="icon"
                             onClick={() => handleRemoveDetalle(index)}
-                            className="text-red-500 hover:text-red-700 h-6 w-6"
+                            className="text-destructive hover:text-destructive/80 h-6 w-6"
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -544,7 +586,7 @@ export default function Compras() {
 
             {/* Totales */}
             {detalles.length > 0 && (
-              <div className="bg-slate-50 p-4 rounded-lg space-y-2">
+              <div className="bg-muted p-4 rounded-lg space-y-2">
                 <div className="flex justify-between text-lg font-bold">
                   <span>Total:</span>
                   <span>{formatCurrency(total)}</span>
@@ -593,7 +635,7 @@ export default function Compras() {
             <Button variant="outline" onClick={() => setNuevaCompraOpen(false)}>
               Cancelar
             </Button>
-            <Button 
+            <Button
               onClick={handleGuardarCompra}
               disabled={detalles.length === 0 || !selectedComprador || saving}
             >
@@ -617,32 +659,32 @@ export default function Compras() {
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div>
-                  <p className="text-slate-500">Comprador</p>
+                  <p className="text-muted-foreground">Comprador</p>
                   <p className="font-medium">{selectedCompra.compradorNombre}</p>
                 </div>
                 <div>
-                  <p className="text-slate-500">Método de Pago</p>
+                  <p className="text-muted-foreground">Método de Pago</p>
                   <p className="font-medium capitalize">{getMetodoPagoLabel(selectedCompra.metodoPago)}</p>
                 </div>
                 <div>
-                  <p className="text-slate-500">Total</p>
+                  <p className="text-muted-foreground">Total</p>
                   <p className="font-medium text-lg">{formatCurrency(selectedCompra.total)}</p>
                 </div>
                 <div>
-                  <p className="text-slate-500">Estado</p>
+                  <p className="text-muted-foreground">Estado</p>
                   <p className="font-medium">{getEstadoBadge(selectedCompra.estado)}</p>
                 </div>
               </div>
 
               {selectedCompra.notas && (
-                <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200">
-                  <p className="text-sm font-medium text-yellow-800">Nota:</p>
-                  <p className="text-sm text-yellow-700">{selectedCompra.notas}</p>
+                <div className="bg-warning/15 p-3 rounded-lg border border-warning/30">
+                  <p className="text-sm font-medium text-warning-foreground">Nota:</p>
+                  <p className="text-sm text-warning-foreground">{selectedCompra.notas}</p>
                 </div>
               )}
 
-              <div className="border rounded-lg overflow-hidden">
-                <Table>
+              <div className="border border-border rounded-lg overflow-hidden">
+                <Table className="[&_td]:py-3 [&_th]:py-3">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Producto</TableHead>

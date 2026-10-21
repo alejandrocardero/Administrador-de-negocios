@@ -1,9 +1,10 @@
-import { useState, useMemo, useRef } from 'react';
-import { CheckCircle, XCircle, Clock, Package, PackagePlus, Search, Loader2 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useState, useMemo } from 'react';
+import { CheckCircle, XCircle, Clock, Package, PackagePlus, SearchX, Inbox } from 'lucide-react';
+import { toast } from 'sonner';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { ActionButton } from '@/components/ui/action-button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
 } from '@/components/ui/dialog';
@@ -15,6 +16,10 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
+import {
+  PageHeader, SearchInput, EmptyState, SkeletonTable, SkeletonCards,
+  StatusBadge, usePagination, TablePagination
+} from '@/components/shared';
 import { useSolicitudesProductoNuevo, useProductos, useCompras, formatCurrency, formatDate } from '@/hooks/supabase/useSupabaseData';
 import type { SolicitudProductoNuevo, Producto, CategoriaProducto, Compra, DetalleCompra } from '@/types';
 
@@ -27,7 +32,7 @@ const categorias: { value: CategoriaProducto; label: string }[] = [
 ];
 
 export default function AprobarProductos() {
-  const { data: solicitudes, refetch: refetchSolicitudes, aprobarSolicitud, rechazarSolicitud } = useSolicitudesProductoNuevo();
+  const { data: solicitudes, loading, refetch: refetchSolicitudes, aprobarSolicitud, rechazarSolicitud } = useSolicitudesProductoNuevo();
   const { create: crearProducto, refetch: refetchProductos } = useProductos();
   const { create: crearCompra, refetch: refetchCompras } = useCompras();
 
@@ -40,8 +45,6 @@ export default function AprobarProductos() {
   const [metodoPago, setMetodoPago] = useState<Compra['metodoPago']>('efectivo');
   const [rechazarOpen, setRechazarOpen] = useState(false);
   const [rechazoComentario, setRechazoComentario] = useState('');
-  const [saving, setSaving] = useState(false);
-  const savingRef = useRef(false);
 
   const pendientes = useMemo(() => solicitudes.filter(s => s.estado === 'pendiente'), [solicitudes]);
   const historial = useMemo(() => solicitudes.filter(s => s.estado !== 'pendiente'), [solicitudes]);
@@ -56,6 +59,10 @@ export default function AprobarProductos() {
     [pendientes, searchQuery]
   );
 
+  const pendientesPaginados = usePagination(filteredPendientes, 10);
+  const historialOrdenado = useMemo(() => historial.slice().reverse(), [historial]);
+  const historialPaginado = usePagination(historialOrdenado, 10);
+
   const handleOpenAprobar = (s: SolicitudProductoNuevo) => {
     setSelectedSolicitud(s);
     setPrecioVenta(Math.round(s.precioCompra * 1.3));
@@ -66,10 +73,6 @@ export default function AprobarProductos() {
   };
 
   const handleAprobar = async () => {
-    if (savingRef.current) return;
-    savingRef.current = true;
-    setSaving(true);
-    try {
     if (!selectedSolicitud || precioVenta <= 0 || stockMinimo < 0) return;
 
     const pctGanancia = Math.round((1 - selectedSolicitud.precioCompra / precioVenta) * 100);
@@ -115,11 +118,8 @@ export default function AprobarProductos() {
     await refetchSolicitudes();
     await refetchProductos();
     await refetchCompras();
+    toast.success('Producto aprobado y creado');
     setSelectedSolicitud(null);
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
-    }
   };
 
   const handleOpenRechazar = (s: SolicitudProductoNuevo) => {
@@ -129,87 +129,105 @@ export default function AprobarProductos() {
   };
 
   const handleRechazar = async () => {
-    if (savingRef.current) return;
-    savingRef.current = true;
-    setSaving(true);
-    try {
     if (!selectedSolicitud) return;
     await rechazarSolicitud(selectedSolicitud.id, rechazoComentario || undefined);
     await refetchSolicitudes();
+    toast.success('Solicitud rechazada');
     setRechazarOpen(false);
     setSelectedSolicitud(null);
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
-    }
   };
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-500">Solicitudes Pendientes</p>
-                <p className="text-2xl font-bold text-amber-600">{pendientes.length}</p>
+      <PageHeader
+        title="Aprobar Productos"
+        description="Solicitudes de productos nuevos enviadas por compradores"
+        icon={PackagePlus}
+      />
+
+      {/* Estadísticas */}
+      {loading ? (
+        <SkeletonCards count={3} />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Solicitudes Pendientes</p>
+                  <p className="text-2xl font-bold text-warning-foreground">{pendientes.length}</p>
+                </div>
+                <Clock className="w-8 h-8 text-warning shrink-0" />
               </div>
-              <Clock className="w-8 h-8 text-amber-500" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-500">Aprobadas</p>
-                <p className="text-2xl font-bold text-green-600">
-                  {solicitudes.filter(s => s.estado === 'aprobada').length}
-                </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Aprobadas</p>
+                  <p className="text-2xl font-bold text-success">
+                    {solicitudes.filter(s => s.estado === 'aprobada').length}
+                  </p>
+                </div>
+                <CheckCircle className="w-8 h-8 text-success shrink-0" />
               </div>
-              <CheckCircle className="w-8 h-8 text-green-500" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-500">Rechazadas</p>
-                <p className="text-2xl font-bold text-red-600">
-                  {solicitudes.filter(s => s.estado === 'rechazada').length}
-                </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Rechazadas</p>
+                  <p className="text-2xl font-bold text-destructive">
+                    {solicitudes.filter(s => s.estado === 'rechazada').length}
+                  </p>
+                </div>
+                <XCircle className="w-8 h-8 text-destructive shrink-0" />
               </div>
-              <XCircle className="w-8 h-8 text-red-500" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <PackagePlus className="w-5 h-5 text-blue-500" />
-            Solicitudes Pendientes
-          </CardTitle>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <Input
-              placeholder="Buscar por producto o comprador..."
+        <CardContent className="pt-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <PackagePlus className="w-5 h-5 text-primary" />
+              Solicitudes Pendientes
+            </h2>
+            <SearchInput
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
+              onChange={(v) => { setSearchQuery(v); pendientesPaginados.reset(); }}
+              placeholder="Buscar por producto o comprador..."
             />
           </div>
-        </CardHeader>
-        <CardContent>
-          {filteredPendientes.length === 0 ? (
-            <p className="text-center py-8 text-slate-500">No hay solicitudes pendientes</p>
+
+          {loading ? (
+            <>
+              <div className="hidden md:block">
+                <SkeletonTable rows={4} cols={7} />
+              </div>
+              <div className="md:hidden">
+                <SkeletonCards count={3} />
+              </div>
+            </>
+          ) : filteredPendientes.length === 0 ? (
+            <EmptyState
+              icon={searchQuery ? SearchX : Inbox}
+              title={searchQuery ? 'Sin resultados' : 'No hay solicitudes pendientes'}
+              description={
+                searchQuery
+                  ? 'Ninguna solicitud coincide con tu búsqueda.'
+                  : 'Cuando un comprador sugiera un producto nuevo, aparecerá aquí para su aprobación.'
+              }
+            />
           ) : (
             <>
               {/* Vista de tabla (escritorio) */}
               <div className="hidden md:block">
-                <Table>
+                <Table className="[&_td]:py-3 [&_th]:py-3">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Fecha</TableHead>
@@ -222,7 +240,7 @@ export default function AprobarProductos() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredPendientes.map(s => (
+                    {pendientesPaginados.pageItems.map(s => (
                       <TableRow key={s.id}>
                         <TableCell className="text-sm">{formatDate(s.fecha)}</TableCell>
                         <TableCell>{s.compradorNombre}</TableCell>
@@ -250,24 +268,24 @@ export default function AprobarProductos() {
 
               {/* Vista de tarjetas (móvil) */}
               <div className="md:hidden space-y-3">
-                {filteredPendientes.map(s => (
+                {pendientesPaginados.pageItems.map(s => (
                   <Card key={s.id} className="p-0">
                     <CardContent className="p-4 space-y-3">
                       <div className="min-w-0">
                         <p className="font-medium truncate">{s.nombreProducto}</p>
-                        <p className="text-xs text-slate-500">{formatDate(s.fecha)} · {s.compradorNombre}</p>
+                        <p className="text-xs text-muted-foreground">{formatDate(s.fecha)} · {s.compradorNombre}</p>
                       </div>
                       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                         <div className="min-w-0">
-                          <dt className="text-xs text-slate-500">P. Compra</dt>
+                          <dt className="text-xs text-muted-foreground">P. Compra</dt>
                           <dd>{formatCurrency(s.precioCompra)}</dd>
                         </div>
                         <div className="min-w-0">
-                          <dt className="text-xs text-slate-500">Cantidad</dt>
+                          <dt className="text-xs text-muted-foreground">Cantidad</dt>
                           <dd>{s.cantidad}</dd>
                         </div>
                         <div className="min-w-0">
-                          <dt className="text-xs text-slate-500">Total</dt>
+                          <dt className="text-xs text-muted-foreground">Total</dt>
                           <dd className="font-medium">{formatCurrency(s.precioCompra * s.cantidad)}</dd>
                         </div>
                       </dl>
@@ -285,6 +303,12 @@ export default function AprobarProductos() {
                   </Card>
                 ))}
               </div>
+
+              <TablePagination
+                page={pendientesPaginados.page}
+                pageCount={pendientesPaginados.pageCount}
+                setPage={pendientesPaginados.setPage}
+              />
             </>
           )}
         </CardContent>
@@ -292,13 +316,12 @@ export default function AprobarProductos() {
 
       {historial.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Historial</CardTitle>
-          </CardHeader>
-          <CardContent>
+          <CardContent className="pt-6 space-y-4">
+            <h2 className="text-lg font-semibold">Historial</h2>
+
             {/* Vista de tabla (escritorio) */}
             <div className="hidden md:block">
-              <Table>
+              <Table className="[&_td]:py-3 [&_th]:py-3">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Fecha</TableHead>
@@ -310,17 +333,15 @@ export default function AprobarProductos() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {historial.slice().reverse().map(s => (
+                  {historialPaginado.pageItems.map(s => (
                     <TableRow key={s.id}>
                       <TableCell className="text-sm">{formatDate(s.fecha)}</TableCell>
                       <TableCell>{s.compradorNombre}</TableCell>
                       <TableCell className="font-medium">{s.nombreProducto}</TableCell>
                       <TableCell>
-                        {s.estado === 'aprobada' ? (
-                          <Badge className="bg-green-500">Aprobada</Badge>
-                        ) : (
-                          <Badge variant="destructive">Rechazada</Badge>
-                        )}
+                        <StatusBadge tone={s.estado === 'aprobada' ? 'success' : 'danger'}>
+                          {s.estado === 'aprobada' ? 'Aprobada' : 'Rechazada'}
+                        </StatusBadge>
                       </TableCell>
                       <TableCell>{s.precioVenta ? formatCurrency(s.precioVenta) : '-'}</TableCell>
                       <TableCell>{s.stockMinimo ?? '-'}</TableCell>
@@ -332,29 +353,27 @@ export default function AprobarProductos() {
 
             {/* Vista de tarjetas (móvil) */}
             <div className="md:hidden space-y-3">
-              {historial.slice().reverse().map(s => (
+              {historialPaginado.pageItems.map(s => (
                 <Card key={s.id} className="p-0">
                   <CardContent className="p-4 space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-medium truncate">{s.nombreProducto}</p>
-                        <p className="text-xs text-slate-500">{formatDate(s.fecha)} · {s.compradorNombre}</p>
+                        <p className="text-xs text-muted-foreground">{formatDate(s.fecha)} · {s.compradorNombre}</p>
                       </div>
                       <div className="shrink-0">
-                        {s.estado === 'aprobada' ? (
-                          <Badge className="bg-green-500">Aprobada</Badge>
-                        ) : (
-                          <Badge variant="destructive">Rechazada</Badge>
-                        )}
+                        <StatusBadge tone={s.estado === 'aprobada' ? 'success' : 'danger'}>
+                          {s.estado === 'aprobada' ? 'Aprobada' : 'Rechazada'}
+                        </StatusBadge>
                       </div>
                     </div>
                     <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                       <div className="min-w-0">
-                        <dt className="text-xs text-slate-500">P. Venta</dt>
+                        <dt className="text-xs text-muted-foreground">P. Venta</dt>
                         <dd>{s.precioVenta ? formatCurrency(s.precioVenta) : '-'}</dd>
                       </div>
                       <div className="min-w-0">
-                        <dt className="text-xs text-slate-500">Stock Mín</dt>
+                        <dt className="text-xs text-muted-foreground">Stock Mín</dt>
                         <dd>{s.stockMinimo ?? '-'}</dd>
                       </div>
                     </dl>
@@ -362,6 +381,12 @@ export default function AprobarProductos() {
                 </Card>
               ))}
             </div>
+
+            <TablePagination
+              page={historialPaginado.page}
+              pageCount={historialPaginado.pageCount}
+              setPage={historialPaginado.setPage}
+            />
           </CardContent>
         </Card>
       )}
@@ -373,45 +398,45 @@ export default function AprobarProductos() {
           </DialogHeader>
           {selectedSolicitud && (
             <div className="space-y-4">
-              <div className="bg-slate-50 p-4 rounded-lg space-y-2">
+              <div className="bg-muted p-4 rounded-lg space-y-2">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                   <div>
-                    <p className="text-slate-500">Comprador</p>
+                    <p className="text-muted-foreground">Comprador</p>
                     <p className="font-medium">{selectedSolicitud.compradorNombre}</p>
                   </div>
                   <div>
-                    <p className="text-slate-500">Fecha</p>
+                    <p className="text-muted-foreground">Fecha</p>
                     <p className="font-medium">{formatDate(selectedSolicitud.fecha)}</p>
                   </div>
                 </div>
                 <div>
-                  <p className="text-slate-500 text-sm">Producto solicitado</p>
+                  <p className="text-muted-foreground text-sm">Producto solicitado</p>
                   <p className="font-bold text-lg">{selectedSolicitud.nombreProducto}</p>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
                   <div>
-                    <p className="text-slate-500">Precio Compra</p>
+                    <p className="text-muted-foreground">Precio Compra</p>
                     <p className="font-medium">{formatCurrency(selectedSolicitud.precioCompra)}</p>
                   </div>
                   <div>
-                    <p className="text-slate-500">Cantidad</p>
+                    <p className="text-muted-foreground">Cantidad</p>
                     <p className="font-medium">{selectedSolicitud.cantidad}</p>
                   </div>
                   <div>
-                    <p className="text-slate-500">Total</p>
+                    <p className="text-muted-foreground">Total</p>
                     <p className="font-medium">{formatCurrency(selectedSolicitud.precioCompra * selectedSolicitud.cantidad)}</p>
                   </div>
                 </div>
                 {selectedSolicitud.notas && (
-                  <div className="bg-yellow-50 p-2 rounded text-sm">
-                    <p className="text-yellow-800 font-medium">Notas del comprador:</p>
-                    <p className="text-yellow-700">{selectedSolicitud.notas}</p>
+                  <div className="bg-warning/15 p-2 rounded border border-warning/30 text-sm">
+                    <p className="text-warning-foreground font-medium">Notas del comprador:</p>
+                    <p className="text-warning-foreground">{selectedSolicitud.notas}</p>
                   </div>
                 )}
               </div>
 
-              <div className="border-t pt-4 space-y-4">
-                <p className="font-medium text-sm text-slate-700">Configurar nuevo producto</p>
+              <div className="border-t border-border pt-4 space-y-4">
+                <p className="font-medium text-sm text-foreground">Configurar nuevo producto</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Precio de Venta *</Label>
@@ -472,11 +497,10 @@ export default function AprobarProductos() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setSelectedSolicitud(null)}>Cancelar</Button>
-            <Button onClick={handleAprobar} disabled={precioVenta <= 0 || saving}>
-              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            <ActionButton onAction={handleAprobar} disabled={precioVenta <= 0} successMessage="Producto aprobado">
               <Package className="w-4 h-4 mr-2" />
               Aprobar y Crear Producto
-            </Button>
+            </ActionButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -488,8 +512,8 @@ export default function AprobarProductos() {
           </DialogHeader>
           {selectedSolicitud && (
             <div className="space-y-4">
-              <p className="text-sm text-slate-600">
-                Rechazar solicitud de <strong>{selectedSolicitud.nombreProducto}</strong> de {selectedSolicitud.compradorNombre}
+              <p className="text-sm text-muted-foreground">
+                Rechazar solicitud de <strong className="text-foreground">{selectedSolicitud.nombreProducto}</strong> de {selectedSolicitud.compradorNombre}
               </p>
               <div className="space-y-2">
                 <Label>Motivo del rechazo (opcional)</Label>
@@ -503,11 +527,10 @@ export default function AprobarProductos() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setRechazarOpen(false)}>Cancelar</Button>
-            <Button variant="destructive" onClick={handleRechazar} disabled={saving}>
-              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            <ActionButton onAction={handleRechazar} variant="destructive" successMessage="Solicitud rechazada">
               <XCircle className="w-4 h-4 mr-2" />
               Rechazar Solicitud
-            </Button>
+            </ActionButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

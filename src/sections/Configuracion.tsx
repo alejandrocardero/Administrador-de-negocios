@@ -1,17 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
-import { 
+import {
   Settings, Building2, Save, Loader2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { 
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue 
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useConfiguracion } from '@/hooks/supabase/useSupabaseData';
+import { toast } from 'sonner';
+import { PageHeader, LabeledInput } from '@/components/shared';
 
 type ConfigRow = NonNullable<ReturnType<typeof useConfiguracion>['config']>;
 
@@ -32,7 +31,6 @@ const emptyConfig: ConfigRow = {
 export default function Configuracion() {
   const { config, loading, updateConfig } = useConfiguracion();
   const [formData, setFormData] = useState<ConfigRow>(config ?? emptyConfig);
-  const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const initializedRef = useRef(false);
@@ -49,11 +47,13 @@ export default function Configuracion() {
     savingRef.current = true;
     setSaving(true);
     try {
-    if (formData) {
-      await updateConfig(formData);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    }
+      if (formData) {
+        await updateConfig(formData);
+        toast.success('Configuración guardada correctamente');
+      }
+    } catch (error) {
+      console.error('Error guardando configuración:', error);
+      toast.error('Error al guardar la configuración');
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -62,14 +62,24 @@ export default function Configuracion() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      <div
+        className="flex h-64 items-center justify-center"
+        aria-busy="true"
+        aria-live="polite"
+      >
+        <Loader2 className="size-8 animate-spin text-primary" aria-hidden />
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Configuración"
+        description="Datos de tu negocio y parámetros fiscales"
+        icon={Settings}
+      />
+
       <Tabs defaultValue="empresa">
         <TabsList className="mb-4">
           <TabsTrigger value="empresa">Empresa</TabsTrigger>
@@ -80,7 +90,7 @@ export default function Configuracion() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Building2 className="w-5 h-5" />
+                <Building2 className="size-5" aria-hidden />
                 Información de la Empresa
               </CardTitle>
               <CardDescription>
@@ -88,67 +98,51 @@ export default function Configuracion() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {saved && (
-                <Alert className="bg-green-50 border-green-200">
-                  <AlertDescription className="text-green-700">
-                    Configuración guardada correctamente
-                  </AlertDescription>
-                </Alert>
-              )}
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="nombre">Nombre del Negocio *</Label>
-                  <Input
-                    id="nombre"
-                    value={formData.nombre}
-                    onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
-                    placeholder="Nombre de su negocio"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="nit">NIT *</Label>
-                  <Input
-                    id="nit"
-                    value={formData.nit ?? ''}
-                    onChange={(e) => setFormData({ ...formData, nit: e.target.value })}
-                    placeholder="NIT de la empresa"
-                  />
-                </div>
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="direccion">Dirección</Label>
-                  <Input
+                <LabeledInput
+                  id="nombre"
+                  label="Nombre del Negocio *"
+                  value={formData.nombre}
+                  onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+                  placeholder="Nombre de su negocio"
+                />
+                <LabeledInput
+                  id="nit"
+                  label="NIT *"
+                  value={formData.nit ?? ''}
+                  onChange={(e) => setFormData({ ...formData, nit: e.target.value })}
+                  placeholder="NIT de la empresa"
+                />
+                <div className="sm:col-span-2">
+                  <LabeledInput
                     id="direccion"
+                    label="Dirección"
                     value={formData.direccion ?? ''}
                     onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
                     placeholder="Dirección completa"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="telefono">Teléfono</Label>
-                  <Input
-                    id="telefono"
-                    value={formData.telefono ?? ''}
-                    onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
-                    placeholder="Teléfono de contacto"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={formData.email ?? ''}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    placeholder="correo@ejemplo.com"
-                  />
-                </div>
+                <LabeledInput
+                  id="telefono"
+                  label="Teléfono"
+                  value={formData.telefono ?? ''}
+                  onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
+                  placeholder="Teléfono de contacto"
+                />
+                <LabeledInput
+                  id="email"
+                  label="Email"
+                  type="email"
+                  value={formData.email ?? ''}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  placeholder="correo@ejemplo.com"
+                />
               </div>
 
               <div className="flex justify-end">
                 <Button onClick={handleSave} disabled={saving}>
-                  {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                  <Save className="w-4 h-4 mr-2" />
+                  {saving && <Loader2 className="size-4 animate-spin" aria-hidden />}
+                  <Save className="size-4" aria-hidden />
                   Guardar Cambios
                 </Button>
               </div>
@@ -160,7 +154,7 @@ export default function Configuracion() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Settings className="w-5 h-5" />
+                <Settings className="size-5" aria-hidden />
                 Configuración de Impuestos
               </CardTitle>
               <CardDescription>
@@ -168,22 +162,16 @@ export default function Configuracion() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {saved && (
-                <Alert className="bg-green-50 border-green-200">
-                  <AlertDescription className="text-green-700">
-                    Configuración guardada correctamente
-                  </AlertDescription>
-                </Alert>
-              )}
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="regimen">Régimen Tributario</Label>
-                  <Select 
-                    value={formData.regimen} 
+                <div className="flex w-full flex-col gap-1.5">
+                  <label htmlFor="regimen" className="text-sm font-medium">
+                    Régimen Tributario
+                  </label>
+                  <Select
+                    value={formData.regimen}
                     onValueChange={(value) => setFormData({ ...formData, regimen: value as 'simplificado' | 'comun' })}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="regimen" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -192,23 +180,23 @@ export default function Configuracion() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="tarifaIva">Tarifa IVA (%)</Label>
-                  <Input
-                    id="tarifaIva"
-                    type="number"
-                    value={formData.tarifa_iva}
-                    onChange={(e) => setFormData({ ...formData, tarifa_iva: parseFloat(e.target.value) || 0 })}
-                    placeholder="19"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="moneda">Moneda</Label>
-                  <Select 
-                    value={formData.moneda} 
+                <LabeledInput
+                  id="tarifaIva"
+                  label="Tarifa IVA (%)"
+                  type="number"
+                  value={formData.tarifa_iva}
+                  onChange={(e) => setFormData({ ...formData, tarifa_iva: parseFloat(e.target.value) || 0 })}
+                  placeholder="19"
+                />
+                <div className="flex w-full flex-col gap-1.5">
+                  <label htmlFor="moneda" className="text-sm font-medium">
+                    Moneda
+                  </label>
+                  <Select
+                    value={formData.moneda}
                     onValueChange={(value) => setFormData({ ...formData, moneda: value })}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="moneda" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -222,8 +210,8 @@ export default function Configuracion() {
 
               <div className="flex justify-end">
                 <Button onClick={handleSave} disabled={saving}>
-                  {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                  <Save className="w-4 h-4 mr-2" />
+                  {saving && <Loader2 className="size-4 animate-spin" aria-hidden />}
+                  <Save className="size-4" aria-hidden />
                   Guardar Cambios
                 </Button>
               </div>

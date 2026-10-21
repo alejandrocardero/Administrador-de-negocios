@@ -1,28 +1,38 @@
 import { useState, useRef } from 'react';
-import { 
-  Plus, Search, Edit2, Trash2, Package, AlertTriangle, BarChart3, Loader2
+import {
+  Plus, Edit2, Trash2, Package, AlertTriangle, BarChart3, Search
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { toast } from 'sonner';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Dialog, DialogContent, DialogHeader, DialogTitle, 
-  DialogDescription, DialogFooter 
-} from '@/components/ui/dialog';
-import { 
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue 
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
-import { 
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
+import {
+  EmptyState,
+  PageHeader,
+  SearchInput,
+  SkeletonTable,
+  StatusBadge,
+  TablePagination,
+  usePagination,
+} from '@/components/shared';
 import { useProductos, useProductRotation, formatCurrency } from '@/hooks/supabase/useSupabaseData';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   margen, formatMargen, precioDesdeMargen, margenDesdePrecio, clampMargen, MARGEN_MAX
 } from '@/lib/ganancia';
-import type { Producto, CategoriaProducto, ProductRotationStats } from '@/types';
+import type { Producto, CategoriaProducto } from '@/types';
+import {
+  InventarioProductoDialog,
+  InventarioDeleteDialog,
+  type InventarioFormState,
+} from './inventario/InventarioDialogs';
+import { InventarioTopRotacion } from './inventario/InventarioTopRotacion';
 
 const categorias: { value: CategoriaProducto; label: string }[] = [
   { value: 'aseo', label: 'Aseo' },
@@ -33,17 +43,18 @@ const categorias: { value: CategoriaProducto; label: string }[] = [
 ];
 
 export default function Inventario() {
-  const { 
-    data: productos, 
-    create: agregarProducto, 
-    update: actualizarProducto, 
+  const {
+    data: productos,
+    loading,
+    create: agregarProducto,
+    update: actualizarProducto,
     delete: eliminarProducto,
   } = useProductos();
 
-  const { 
-    data: rotationData, 
-    loading: rotationLoading, 
-    getTopByRotation 
+  const {
+    data: rotationData,
+    loading: rotationLoading,
+    getTopByRotation
   } = useProductRotation();
 
   const { user } = useAuth();
@@ -53,7 +64,7 @@ export default function Inventario() {
   const [categoriaFilter, setCategoriaFilter] = useState<string>('todas');
   const [showBajoStock, setShowBajoStock] = useState(false);
   const [viewMode, setViewMode] = useState<'lista' | 'rotacion'>('lista');
-  
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Producto | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -63,11 +74,11 @@ export default function Inventario() {
   const savingRef = useRef(false);
   const [margenTopado, setMargenTopado] = useState(false);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<InventarioFormState>({
     codigo: '',
     nombre: '',
     descripcion: '',
-    categoria: 'otros' as CategoriaProducto,
+    categoria: 'otros',
     precioCompra: '',
     precioVenta: '',
     porcentajeGanancia: '30',
@@ -80,7 +91,7 @@ export default function Inventario() {
   const getProductosBajoStock = () => productos.filter(p => p.stock <= p.stockMinimo && p.activo);
   const buscarProductos = (query: string) => {
     const q = query.toLowerCase();
-    return productos.filter(p => 
+    return productos.filter(p =>
       p.activo && (
         p.nombre.toLowerCase().includes(q) ||
         p.codigo.toLowerCase().includes(q) ||
@@ -88,10 +99,10 @@ export default function Inventario() {
       )
     );
   };
-  const getProductosByCategoria = (categoria: string) => 
+  const getProductosByCategoria = (categoria: string) =>
     productos.filter(p => p.categoria === categoria && p.activo);
 
-  const filteredProducts = showBajoStock 
+  const filteredProducts = showBajoStock
     ? getProductosBajoStock()
     : categoriaFilter !== 'todas'
       ? getProductosByCategoria(categoriaFilter)
@@ -101,7 +112,7 @@ export default function Inventario() {
 
   const topProducts = getTopByRotation(10);
 
-  const productsForTable = viewMode === 'rotacion' 
+  const productsForTable = viewMode === 'rotacion'
     ? (() => {
         const rotationMap = new Map(rotationData.map(r => [r.productoId, r]));
         return filteredProducts
@@ -111,6 +122,28 @@ export default function Inventario() {
           .map(({ producto }) => producto);
       })()
     : filteredProducts;
+
+  const { pageItems, page, pageCount, setPage, reset } = usePagination(productsForTable);
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    reset();
+  };
+
+  const handleCategoriaChange = (value: string) => {
+    setCategoriaFilter(value);
+    reset();
+  };
+
+  const toggleBajoStock = () => {
+    setShowBajoStock(!showBajoStock);
+    reset();
+  };
+
+  const handleViewModeChange = (value: string) => {
+    setViewMode(value as 'lista' | 'rotacion');
+    reset();
+  };
 
   const handleOpenDialog = (producto?: Producto) => {
     if (producto) {
@@ -147,8 +180,8 @@ export default function Inventario() {
     setMargenTopado(false);
   };
 
-  function updateField<K extends keyof typeof formData>(key: K, value: (typeof formData)[K]) {
-    setFormData(prev => ({ ...prev, [key]: value }) as typeof formData);
+  function updateField<K extends keyof InventarioFormState>(key: K, value: string) {
+    setFormData(prev => ({ ...prev, [key]: value }) as InventarioFormState);
     setFormErrors(prev => {
       if (!prev[key]) return prev;
       const next = { ...prev };
@@ -201,7 +234,7 @@ export default function Inventario() {
     setSaving(true);
     try {
       const errors: Record<string, string> = {};
-      const text: Array<keyof typeof formData> = ['nombre', 'categoria', 'unidad', 'precioCompra', 'precioVenta', 'stock', 'stockMinimo'];
+      const text: Array<keyof InventarioFormState> = ['nombre', 'categoria', 'unidad', 'precioCompra', 'precioVenta', 'stock', 'stockMinimo'];
       text.forEach(field => {
         if (!String(formData[field]).trim()) errors[field] = 'Campo obligatorio';
       });
@@ -245,13 +278,15 @@ export default function Inventario() {
 
       if (editingProduct) {
         await actualizarProducto(editingProduct.id, productoData);
+        toast.success('Producto actualizado');
       } else {
         await agregarProducto(productoData);
+        toast.success('Producto creado');
       }
       setDialogOpen(false);
     } catch (error) {
       console.error('Error guardando producto:', error);
-      alert('Error al guardar el producto');
+      toast.error('Error al guardar el producto');
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -267,24 +302,25 @@ export default function Inventario() {
     if (productToDelete) {
       try {
         await eliminarProducto(productToDelete.id);
+        toast.success('Producto eliminado');
         setDeleteDialogOpen(false);
         setProductToDelete(null);
       } catch (error) {
         console.error('Error eliminando producto:', error);
-        alert('Error al eliminar el producto');
+        toast.error('Error al eliminar el producto');
       }
     }
   };
 
   const getStockBadge = (stock: number, stockMinimo: number) => {
     if (stock <= 0) {
-      return <Badge variant="destructive">Agotado</Badge>;
+      return <StatusBadge tone="danger">Agotado</StatusBadge>;
     } else if (stock <= stockMinimo) {
-      return <Badge variant="destructive" className="bg-yellow-500">Bajo Stock</Badge>;
+      return <StatusBadge tone="warning">Bajo Stock</StatusBadge>;
     } else if (stock <= stockMinimo * 1.5) {
-      return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">Stock Medio</Badge>;
+      return <StatusBadge tone="neutral">Stock Medio</StatusBadge>;
     }
-    return <Badge variant="default" className="bg-green-500">OK</Badge>;
+    return <StatusBadge tone="success">OK</StatusBadge>;
   };
 
   const getCategoriaLabel = (cat: string) => {
@@ -295,15 +331,15 @@ export default function Inventario() {
   const getGananciaBadge = (precioVenta: number, precioCompra: number) => {
     const pct = margen(precioVenta, precioCompra);
     if (pct === null) {
-      return <Badge variant="secondary" className="bg-slate-100 text-slate-500">—</Badge>;
+      return <StatusBadge tone="neutral">—</StatusBadge>;
     }
     if (pct >= 30) {
-      return <Badge variant="default" className="bg-green-500">{formatMargen(pct)}</Badge>;
+      return <StatusBadge tone="success">{formatMargen(pct)}</StatusBadge>;
     }
     if (pct >= 15) {
-      return <Badge variant="default" className="bg-yellow-500">{formatMargen(pct)}</Badge>;
+      return <StatusBadge tone="warning">{formatMargen(pct)}</StatusBadge>;
     }
-    return <Badge variant="destructive">{formatMargen(pct)}</Badge>;
+    return <StatusBadge tone="danger">{formatMargen(pct)}</StatusBadge>;
   };
 
   const totalInventario = productos.reduce((sum, p) => sum + (p.precioCompra * p.stock), 0);
@@ -319,49 +355,43 @@ export default function Inventario() {
     if (!rot) return null;
     return (
       <>
-        <TableCell className="text-right">{rot.vendidoSemana} / {rot.vendidoMes} / {rot.totalVendido}</TableCell>
-        <TableCell className="text-right">{formatCurrency(rot.precioVenta)}</TableCell>
-        <TableCell className="text-right">{formatCurrency(rot.gananciaPorUnidad)}</TableCell>
-        <TableCell className="text-right">{formatCurrency(rot.gananciaSemanal)}</TableCell>
-        <TableCell className="text-right">{formatCurrency(rot.gananciaMensual)}</TableCell>
-        <TableCell className="text-right font-medium text-blue-600">{rot.rotacion.toFixed(2)}</TableCell>
+        <TableCell className="py-3 text-right">{rot.vendidoSemana} / {rot.vendidoMes} / {rot.totalVendido}</TableCell>
+        <TableCell className="py-3 text-right">{formatCurrency(rot.precioVenta)}</TableCell>
+        <TableCell className="py-3 text-right">{formatCurrency(rot.gananciaPorUnidad)}</TableCell>
+        <TableCell className="py-3 text-right">{formatCurrency(rot.gananciaSemanal)}</TableCell>
+        <TableCell className="py-3 text-right">{formatCurrency(rot.gananciaMensual)}</TableCell>
+        <TableCell className="py-3 text-right font-medium text-primary">{rot.rotacion.toFixed(2)}</TableCell>
       </>
     );
   };
 
-  const getLeaderCardStats = (rot: ProductRotationStats) => (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-50 rounded-lg">
-      <div className="min-w-0">
-        <p className="text-xs text-slate-500">Vendidos (Sem/Mes/Total)</p>
-        <p className="text-sm font-medium">{rot.vendidoSemana} / {rot.vendidoMes} / {rot.totalVendido}</p>
-      </div>
-      <div className="min-w-0">
-        <p className="text-xs text-slate-500">Precio / Ganancia Ud.</p>
-        <p className="text-sm font-medium truncate">{formatCurrency(rot.precioVenta)} / {formatCurrency(rot.gananciaPorUnidad)}</p>
-      </div>
-      <div className="min-w-0">
-        <p className="text-xs text-slate-500">Ganancia Semanal</p>
-        <p className="text-sm font-medium text-green-600">{formatCurrency(rot.gananciaSemanal)}</p>
-      </div>
-      <div className="min-w-0">
-        <p className="text-xs text-slate-500">Ganancia Mensual</p>
-        <p className="text-sm font-medium text-green-600">{formatCurrency(rot.gananciaMensual)}</p>
-      </div>
-    </div>
-  );
+  const tableLoading = loading || (viewMode === 'rotacion' && rotationLoading);
+  const skeletonCols = viewMode === 'rotacion' ? 9 : (esJefe ? 9 : 8);
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Inventario"
+        description="Gestiona tu catálogo, precios y stock"
+        icon={Package}
+        actions={
+          <Button onClick={() => handleOpenDialog()}>
+            <Plus className="w-4 h-4 mr-2" />
+            Nuevo Producto
+          </Button>
+        }
+      />
+
       {/* Estadísticas */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Total Productos</p>
+                <p className="text-sm text-muted-foreground">Total Productos</p>
                 <p className="text-2xl font-bold">{productos.length}</p>
               </div>
-              <Package className="w-8 h-8 text-blue-500" />
+              <Package className="w-8 h-8 text-primary" />
             </div>
           </CardContent>
         </Card>
@@ -369,10 +399,10 @@ export default function Inventario() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Valor Inventario</p>
+                <p className="text-sm text-muted-foreground">Valor Inventario</p>
                 <p className="text-2xl font-bold">{formatCurrency(totalInventario)}</p>
               </div>
-              <BarChart3 className="w-8 h-8 text-green-500" />
+              <BarChart3 className="w-8 h-8 text-success" />
             </div>
           </CardContent>
         </Card>
@@ -380,10 +410,10 @@ export default function Inventario() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Productos Agotados</p>
-                <p className="text-2xl font-bold text-red-600">{productosAgotados}</p>
+                <p className="text-sm text-muted-foreground">Productos Agotados</p>
+                <p className="text-2xl font-bold text-destructive">{productosAgotados}</p>
               </div>
-              <AlertTriangle className="w-8 h-8 text-red-500" />
+              <AlertTriangle className="w-8 h-8 text-destructive/70" />
             </div>
           </CardContent>
         </Card>
@@ -391,10 +421,10 @@ export default function Inventario() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Bajo Stock</p>
-                <p className="text-2xl font-bold text-yellow-600">{productosBajoStock}</p>
+                <p className="text-sm text-muted-foreground">Bajo Stock</p>
+                <p className="text-2xl font-bold text-warning-foreground">{productosBajoStock}</p>
               </div>
-              <AlertTriangle className="w-8 h-8 text-yellow-500" />
+              <AlertTriangle className="w-8 h-8 text-warning" />
             </div>
           </CardContent>
         </Card>
@@ -402,54 +432,20 @@ export default function Inventario() {
 
       {/* Productos Líderes - Top 10 por Rotación */}
       {!rotationLoading && topProducts.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-blue-500" />
-              Productos Líderes (Top 10 por Rotación)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-              {topProducts.map((rot, index) => (
-                <div key={rot.productoId} className="border rounded-lg p-4 hover:shadow-md transition-shadow flex flex-col gap-3">
-                  <div className="flex items-start justify-between gap-2 min-w-0">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="w-6 h-6 shrink-0 flex items-center justify-center bg-blue-100 text-blue-700 rounded-full text-sm font-bold">
-                        {index + 1}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-sm truncate">{rot.productoNombre}</p>
-                        <p className="text-xs text-slate-500 truncate">{rot.productoCodigo || '—'}</p>
-                      </div>
-                    </div>
-                    <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded shrink-0 whitespace-nowrap">
-                      Rot: {rot.rotacion.toFixed(2)}
-                    </span>
-                  </div>
-                  {getLeaderCardStats(rot)}
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        <InventarioTopRotacion products={topProducts} />
       )}
 
       {/* Filtros, Vista y Acciones */}
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-            <div className="flex flex-col sm:flex-row gap-4 flex-1 w-full">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input
-                  placeholder="Buscar productos..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <Select value={categoriaFilter} onValueChange={setCategoriaFilter}>
+            <div className="flex flex-wrap items-center gap-3 flex-1 w-full">
+              <SearchInput
+                value={searchQuery}
+                onChange={handleSearchChange}
+                placeholder="Buscar productos…"
+              />
+              <Select value={categoriaFilter} onValueChange={handleCategoriaChange}>
                 <SelectTrigger className="w-full sm:w-40">
                   <SelectValue placeholder="Categoría" />
                 </SelectTrigger>
@@ -462,13 +458,12 @@ export default function Inventario() {
               </Select>
               <Button
                 variant={showBajoStock ? "default" : "outline"}
-                onClick={() => setShowBajoStock(!showBajoStock)}
-                className={showBajoStock ? "bg-yellow-500 hover:bg-yellow-600" : ""}
+                onClick={toggleBajoStock}
               >
                 <AlertTriangle className="w-4 h-4 mr-2" />
                 Bajo Stock
               </Button>
-              <Select value={viewMode} onValueChange={(v) => setViewMode(v as 'lista' | 'rotacion')}>
+              <Select value={viewMode} onValueChange={handleViewModeChange}>
                 <SelectTrigger className="w-full sm:w-36">
                   <SelectValue placeholder="Vista" />
                 </SelectTrigger>
@@ -478,28 +473,52 @@ export default function Inventario() {
                 </SelectContent>
               </Select>
             </div>
-            <Button onClick={() => handleOpenDialog()}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nuevo Producto
-            </Button>
           </div>
         </CardContent>
       </Card>
 
       {/* Tabla de Productos */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            Lista de Productos
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold flex items-center gap-2">Lista de Productos</h2>
             {viewMode === 'rotacion' && (
-              <Badge variant="secondary" className="bg-blue-100 text-blue-700 ml-2">
+              <Badge variant="secondary" className="ml-2">
                 Ordenado por Rotación
               </Badge>
             )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-            <div className="overflow-x-auto">
+          </div>
+
+          {tableLoading ? (
+            <SkeletonTable cols={skeletonCols} />
+          ) : productos.length === 0 ? (
+            <EmptyState
+              icon={Package}
+              title="Sin productos"
+              description="Agrega tu primer producto para empezar a controlar tu inventario."
+              action={
+                <Button onClick={() => handleOpenDialog()}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Nuevo Producto
+                </Button>
+              }
+            />
+          ) : productsForTable.length === 0 ? (
+            viewMode === 'rotacion' ? (
+              <EmptyState
+                icon={BarChart3}
+                title="Sin datos de rotación"
+                description="Aún no hay ventas registradas para calcular la rotación de productos."
+              />
+            ) : (
+              <EmptyState
+                icon={Search}
+                title="Sin resultados para tu búsqueda"
+                description="Prueba con otro nombre, código o cambia los filtros."
+              />
+            )
+          ) : (
+            <>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -528,239 +547,88 @@ export default function Inventario() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {productsForTable.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={viewMode === 'rotacion' ? 9 : (esJefe ? 9 : 8)} className="text-center py-8 text-slate-500">
-                        {rotationLoading 
-                          ? 'Cargando datos de rotación...' 
-                          : viewMode === 'rotacion' 
-                            ? 'No hay productos con datos de rotación' 
-                            : 'No se encontraron productos'}
+                  {pageItems.map((producto) => (
+                    <TableRow key={producto.id}>
+                      <TableCell className="py-3 font-medium">{producto.codigo}</TableCell>
+                      <TableCell className="py-3">
+                        <span className="inline-flex items-center gap-2">
+                          {producto.nombre}
+                          {producto.esNuevo && <StatusBadge tone="info">Nuevo</StatusBadge>}
+                        </span>
+                      </TableCell>
+                      <TableCell className="py-3">
+                        <Badge variant="outline">{getCategoriaLabel(producto.categoria)}</Badge>
+                      </TableCell>
+                      {viewMode === 'rotacion' ? (
+                        getRotationColumns(producto)
+                      ) : (
+                        <>
+                          <TableCell className="py-3 text-right">{formatCurrency(producto.precioCompra)}</TableCell>
+                          <TableCell className="py-3 text-right">{formatCurrency(producto.precioVenta)}</TableCell>
+                          {esJefe && (
+                            <TableCell className="py-3 text-right">
+                              {getGananciaBadge(producto.precioVenta, producto.precioCompra)}
+                            </TableCell>
+                          )}
+                          <TableCell className="py-3 text-right">
+                            {producto.stock} {producto.unidad}
+                          </TableCell>
+                          <TableCell className="py-3">{getStockBadge(producto.stock, producto.stockMinimo)}</TableCell>
+                        </>
+                      )}
+                      <TableCell className="py-3 text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleOpenDialog(producto)}
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDelete(producto)}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
-                  ) : (
-                    productsForTable.map((producto) => (
-                      <TableRow key={producto.id}>
-                        <TableCell className="font-medium">{producto.codigo}</TableCell>
-                        <TableCell>
-                          <span className="inline-flex items-center gap-2">
-                            {producto.nombre}
-                            {producto.esNuevo && <Badge className="bg-blue-600 text-white">Nuevo</Badge>}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{getCategoriaLabel(producto.categoria)}</Badge>
-                        </TableCell>
-                        {viewMode === 'rotacion' ? (
-                          getRotationColumns(producto)
-                        ) : (
-                          <>
-                            <TableCell className="text-right">{formatCurrency(producto.precioCompra)}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(producto.precioVenta)}</TableCell>
-                            {esJefe && (
-                              <TableCell className="text-right">
-                                {getGananciaBadge(producto.precioVenta, producto.precioCompra)}
-                              </TableCell>
-                            )}
-                            <TableCell className="text-right">
-                              {producto.stock} {producto.unidad}
-                            </TableCell>
-                            <TableCell>{getStockBadge(producto.stock, producto.stockMinimo)}</TableCell>
-                          </>
-                        )}
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleOpenDialog(producto)}
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDelete(producto)}
-                              className="text-red-500 hover:text-red-700"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
+                  ))}
                 </TableBody>
               </Table>
-            </div>
-          </CardContent>
-        </Card>
+              <TablePagination page={page} pageCount={pageCount} setPage={setPage} />
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Dialog para agregar/editar producto */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {editingProduct ? 'Editar Producto' : 'Nuevo Producto'}
-            </DialogTitle>
-            <DialogDescription>
-              Complete los datos del producto. Todos los campos son obligatorios excepto Código y Descripción.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="codigo">Código</Label>
-              <Input
-                id="codigo"
-                value={formData.codigo}
-                onChange={(e) => updateField('codigo', e.target.value)}
-                placeholder="Ej: PROD001"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="nombre">Nombre *</Label>
-              <Input
-                id="nombre"
-                value={formData.nombre}
-                onChange={(e) => updateField('nombre', e.target.value)}
-                placeholder="Nombre del producto"
-              />
-              {formErrors.nombre && <p className="text-sm text-red-600">{formErrors.nombre}</p>}
-            </div>
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="descripcion">Descripción</Label>
-              <Input
-                id="descripcion"
-                value={formData.descripcion}
-                onChange={(e) => updateField('descripcion', e.target.value)}
-                placeholder="Descripción del producto"
-              />
-              {formErrors.descripcion && <p className="text-sm text-red-600">{formErrors.descripcion}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="categoria">Categoría *</Label>
-              <Select 
-                value={formData.categoria} 
-                onValueChange={(value) => updateField('categoria', value as CategoriaProducto)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {categorias.map(cat => (
-                    <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {formErrors.categoria && <p className="text-sm text-red-600">{formErrors.categoria}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="unidad">Unidad *</Label>
-              <Input
-                id="unidad"
-                value={formData.unidad}
-                onChange={(e) => updateField('unidad', e.target.value)}
-                placeholder="unidad, kg, litro, etc."
-              />
-              {formErrors.unidad && <p className="text-sm text-red-600">{formErrors.unidad}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="precioCompra">Precio de Compra *</Label>
-              <Input
-                id="precioCompra"
-                type="number"
-                value={formData.precioCompra}
-                onChange={(e) => handlePrecioCompraChange(e.target.value)}
-                placeholder="0"
-              />
-              {formErrors.precioCompra && <p className="text-sm text-red-600">{formErrors.precioCompra}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="porcentajeGanancia">Ganancia deseada (%)</Label>
-              <Input
-                id="porcentajeGanancia"
-                type="number"
-                inputMode="decimal"
-                min="0"
-                max={MARGEN_MAX}
-                value={formData.porcentajeGanancia}
-                onChange={(e) => handleGananciaChange(e.target.value)}
-                placeholder="Ej: 25"
-              />
-              {margenTopado && <p className="text-sm text-amber-600">Máximo {MARGEN_MAX} %</p>}
-              <p className="text-xs text-slate-500">
-                Con un % definido, el precio de venta se calcula como PC / (1 − %/100).
-                Déjelo vacío o en 0 para editarlo libremente.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="precioVenta">Precio de Venta *</Label>
-              <Input
-                id="precioVenta"
-                type="number"
-                value={formData.precioVenta}
-                onChange={(e) => handlePrecioVentaChange(e.target.value)}
-                placeholder="0"
-              />
-              {formErrors.precioVenta && <p className="text-sm text-red-600">{formErrors.precioVenta}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="stock">Stock Actual *</Label>
-              <Input
-                id="stock"
-                type="number"
-                value={formData.stock}
-                onChange={(e) => updateField('stock', e.target.value)}
-                placeholder="0"
-              />
-              {formErrors.stock && <p className="text-sm text-red-600">{formErrors.stock}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="stockMinimo">Stock Mínimo *</Label>
-              <Input
-                id="stockMinimo"
-                type="number"
-                value={formData.stockMinimo}
-                onChange={(e) => updateField('stockMinimo', e.target.value)}
-                placeholder="0"
-              />
-              {formErrors.stockMinimo && <p className="text-sm text-red-600">{formErrors.stockMinimo}</p>}
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {editingProduct ? 'Guardar Cambios' : 'Crear Producto'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <InventarioProductoDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        editing={editingProduct}
+        formData={formData}
+        onFieldChange={updateField}
+        onPrecioCompraChange={handlePrecioCompraChange}
+        onGananciaChange={handleGananciaChange}
+        onPrecioVentaChange={handlePrecioVentaChange}
+        margenTopado={margenTopado}
+        errors={formErrors}
+        categorias={categorias}
+        saving={saving}
+        onSave={handleSave}
+      />
 
       {/* Dialog de confirmación para eliminar */}
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirmar Eliminación</DialogTitle>
-            <DialogDescription>
-              ¿Está seguro de que desea eliminar el producto "{productToDelete?.nombre}"? 
-              Esta acción no se puede deshacer.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button variant="destructive" onClick={confirmDelete}>
-              Eliminar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <InventarioDeleteDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        producto={productToDelete}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }

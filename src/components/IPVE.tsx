@@ -1,7 +1,10 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
-import { File, Loader2, Printer, Save, X } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { AlertTriangle, CheckCircle2, File, Package, Printer, Save, X, ArrowUpCircle } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { ActionButton } from '@/components/ui/action-button';
 import { Input } from '@/components/ui/input';
+import { EmptyState } from '@/components/shared';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription
 } from '@/components/ui/dialog';
@@ -12,9 +15,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { useVendedores, useProductos, useRegistrosIPVE, formatCurrency } from '@/hooks/supabase/useSupabaseData';
+import { useVendedores, useProductos, useRegistrosIPVE, usePedidos, formatCurrency } from '@/hooks/supabase/useSupabaseData';
 import type { AuthUser } from '@/contexts/AuthContext';
-import type { Producto, VentaDiaria } from '@/types';
+import type { Producto, VentaDiaria, RegistroIPVE } from '@/types';
 
 interface IPVEProps {
   open: boolean;
@@ -34,7 +37,8 @@ interface ProductoIPVE extends Producto {
 export default function IPVE({ open, onOpenChange, user, modoDiario = false, totalCierre, ventasHoy }: IPVEProps) {
   const { vendedores, getVendedorByNombre } = useVendedores();
   const { productos } = useProductos();
-  const { getRegistrosDiariosByFecha, getRegistrosByFecha, agregarOActualizarRegistro } = useRegistrosIPVE();
+  const { getRegistrosDiariosByFecha, getRegistrosByFecha, getRegistrosHistoricosByFecha, agregarOActualizarRegistro } = useRegistrosIPVE();
+  const { agregarPedido } = usePedidos();
   
   const vendedorPrederminado = useMemo(() => {
     if (!user || user.role === 'jefe' || user.role === 'admin') return '';
@@ -47,14 +51,30 @@ export default function IPVE({ open, onOpenChange, user, modoDiario = false, tot
   const fecha = `${hoyLocal.getFullYear()}-${String(hoyLocal.getMonth() + 1).padStart(2, '0')}-${String(hoyLocal.getDate()).padStart(2, '0')}`;
   const [productosIPVE, setProductosIPVE] = useState<ProductoIPVE[]>([]);
   const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const savingRef = useRef(false);
   const [guardarVendedorOpen, setGuardarVendedorOpen] = useState(false);
   const [alerta, setAlerta] = useState<'faltante' | 'sobrante' | null>(null);
+  const [reposicionOpen, setReposicionOpen] = useState(false);
+  const [reposicionItems, setReposicionItems] = useState<Record<string, number>>({});
 
   const selectedVendedor = useMemo(() => 
     vendedores.find(v => v.id === vendedorId), 
   [vendedorId, vendedores]);
+
+  // Productos que necesitan reposición (final <= stockMinimo o final = 0)
+  const productosParaReposicion = useMemo(() => {
+    return productosIPVE.filter(p => {
+      const producto = productos.find(prod => prod.id === p.id);
+      if (!producto) return false;
+      return p.final <= producto.stockMinimo && (p.inicio > 0 || p.entrada > 0);
+    });
+  }, [productosIPVE, productos]);
+
+  // Helper to get previous day's date in YYYY-MM-DD format
+  const getPreviousDate = (dateStr: string): string => {
+    const date = new Date(dateStr + 'T00:00:00');
+    date.setDate(date.getDate() - 1);
+    return date.toISOString().split('T')[0];
+  };
 
   const initializeProductos = () => {
     if (!vendedorId) {
@@ -81,13 +101,39 @@ export default function IPVE({ open, onOpenChange, user, modoDiario = false, tot
     
     console.log('Inicializando IPVE:', { fecha, vendedorId, tipoBuscado, diarios: diarios.length, historicos: historicos.length, existentes: existentes.length });
     
+    // Si no hay registros para hoy, buscar el histórico del día anterior para continuidad
+    let historicosAyer: RegistroIPVE[] = [];
+    if (existentes.length === 0) {
+      const fechaAyer = getPreviousDate(fecha);
+      historicosAyer = getRegistrosHistoricosByFecha(fechaAyer).filter(r => r.vendedorId === vendedorId);
+      console.log('Buscando histórico de ayer para continuidad:', { fechaAyer, encontrados: historicosAyer.length });
+    }
+    
     const inicial = productos.map(p => {
       const exist = existentes.find(e => e.productoId === p.id);
+      if (exist) {
+        // Ya existe registro para hoy, usar sus valores
+        return {
+          ...p,
+          inicio: exist.inicio || 0,
+          entrada: exist.entrada || 0,
+          final: exist.final || 0,
+        };
+      }
+      
+      // No hay registro para hoy, buscar en histórico de ayer
+      const historicoAyer = historicosAyer.find(h => h.productoId === p.id);
+      const inicioDesdeAyer = historicoAyer?.final ?? 0;
+      
+      // Solo aplicar continuidad si hay histórico de ayer (no es el primer día)
+      const hayHistoricoPrevio = historicosAyer.length > 0;
+      const inicio = hayHistoricoPrevio ? inicioDesdeAyer : 0;
+      
       return {
         ...p,
-        inicio: exist?.inicio || 0,
-        entrada: exist?.entrada || 0,
-        final: exist?.final || 0,
+        inicio,
+        entrada: 0,
+        final: 0,
       };
     });
     
@@ -134,23 +180,83 @@ export default function IPVE({ open, onOpenChange, user, modoDiario = false, tot
   const isToday = fecha === `${hoyLocal.getFullYear()}-${String(hoyLocal.getMonth() + 1).padStart(2, '0')}-${String(hoyLocal.getDate()).padStart(2, '0')}`;
 
   const handleSave = async () => {
-    if (savingRef.current) return;
-    savingRef.current = true;
-    setSaving(true);
-    try {
-      if (!isToday) return;
+    if (!isToday) return;
 
-      const currentVendedorId = vendedorId || vendedorIdTemporal;
-      const currentVendedor = vendedores.find(v => v.id === currentVendedorId);
+    const currentVendedorId = vendedorId || vendedorIdTemporal;
+    const currentVendedor = vendedores.find(v => v.id === currentVendedorId);
 
-      if (!currentVendedorId || !currentVendedor) {
-        setGuardarVendedorOpen(true);
-        return;
-      }
+    if (!currentVendedorId || !currentVendedor) {
+      setGuardarVendedorOpen(true);
+      return;
+    }
 
-      const tipo: 'diario' | 'historico' = modoDiario ? 'diario' : 'historico';
+    const tipo: 'diario' | 'historico' = modoDiario ? 'diario' : 'historico';
 
-      const registrosNuevos = productosIPVE.map(p => ({
+    const registrosNuevos = productosIPVE.map(p => ({
+      fecha,
+      vendedorId: currentVendedorId,
+      vendedorNombre: currentVendedor.nombre,
+      productoId: p.id,
+      productoNombre: p.nombre,
+      inicio: p.inicio,
+      entrada: p.entrada,
+      final: p.final,
+      precioVenta: p.precioVenta,
+      tipo,
+    }));
+
+    for (const registro of registrosNuevos) {
+      await agregarOActualizarRegistro(registro);
+    }
+    setSaved(true);
+    // Validar importe IPVE contra registro de cierre
+    validarCierre();
+    toast.success('IPVE guardado');
+  };
+
+const handleConfirmarGuardarConVendedor = async () => {
+    if (!vendedorIdTemporal) return;
+
+    const currentVendedor = vendedores.find(v => v.id === vendedorIdTemporal);
+    if (!currentVendedor) return;
+
+    const tipo: 'diario' | 'historico' = modoDiario ? 'diario' : 'historico';
+
+    const registrosNuevos = productosIPVE.map(p => ({
+      fecha,
+      vendedorId: vendedorIdTemporal,
+      vendedorNombre: currentVendedor.nombre,
+      productoId: p.id,
+      productoNombre: p.nombre,
+      inicio: p.inicio,
+      entrada: p.entrada,
+      final: p.final,
+      precioVenta: p.precioVenta,
+      tipo,
+    }));
+
+    for (const registro of registrosNuevos) {
+      await agregarOActualizarRegistro(registro);
+    }
+    setSaved(true);
+    setGuardarVendedorOpen(false);
+    setVendedorIdTemporal('');
+    toast.success('IPVE guardado');
+  };
+
+  const handleGuardarDia = async () => {
+    if (!isToday) return;
+
+    const currentVendedorId = vendedorId || vendedorIdTemporal;
+    const currentVendedor = vendedores.find(v => v.id === currentVendedorId);
+    if (!currentVendedorId || !currentVendedor) {
+      setGuardarVendedorOpen(true);
+      return;
+    }
+
+    for (const p of productosIPVE) {
+      // Guardar como diario
+      await agregarOActualizarRegistro({
         fecha,
         vendedorId: currentVendedorId,
         vendedorNombre: currentVendedor.nombre,
@@ -160,39 +266,12 @@ export default function IPVE({ open, onOpenChange, user, modoDiario = false, tot
         entrada: p.entrada,
         final: p.final,
         precioVenta: p.precioVenta,
-        tipo,
-      }));
-
-      for (const registro of registrosNuevos) {
-        await agregarOActualizarRegistro(registro);
-      }
-      setSaved(true);
-      // Validar importe IPVE contra registro de cierre
-      validarCierre();
-    } catch (error) {
-      console.error('Error guardando IPVE:', error);
-      alert('Error al guardar el IPVE: ' + (error instanceof Error ? error.message : 'error desconocido'));
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
-    }
-  };
-
-const handleConfirmarGuardarConVendedor = async () => {
-    if (savingRef.current) return;
-    savingRef.current = true;
-    setSaving(true);
-    try {
-      if (!vendedorIdTemporal) return;
-
-      const currentVendedor = vendedores.find(v => v.id === vendedorIdTemporal);
-      if (!currentVendedor) return;
-
-      const tipo: 'diario' | 'historico' = modoDiario ? 'diario' : 'historico';
-
-      const registrosNuevos = productosIPVE.map(p => ({
+        tipo: 'diario'
+      });
+      // Guardar como histórico
+      await agregarOActualizarRegistro({
         fecha,
-        vendedorId: vendedorIdTemporal,
+        vendedorId: currentVendedorId,
         vendedorNombre: currentVendedor.nombre,
         productoId: p.id,
         productoNombre: p.nombre,
@@ -200,76 +279,70 @@ const handleConfirmarGuardarConVendedor = async () => {
         entrada: p.entrada,
         final: p.final,
         precioVenta: p.precioVenta,
-        tipo,
-      }));
-
-      for (const registro of registrosNuevos) {
-        await agregarOActualizarRegistro(registro);
-      }
-      setSaved(true);
-      setGuardarVendedorOpen(false);
-      setVendedorIdTemporal('');
-    } catch (error) {
-      console.error('Error guardando IPVE:', error);
-      alert('Error al guardar el IPVE: ' + (error instanceof Error ? error.message : 'error desconocido'));
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
+        tipo: 'historico'
+      });
+    }
+    setSaved(true);
+    // Validar importe IPVE contra registro de cierre
+    validarCierre();
+    toast.success('Día guardado completamente');
+    
+    // Abrir diálogo de reposición si hay productos que la necesitan
+    const itemsNecesitanReposicion = productosParaReposicion;
+    if (itemsNecesitanReposicion.length > 0) {
+      const initialItems: Record<string, number> = {};
+      itemsNecesitanReposicion.forEach(p => {
+        const producto = productos.find(prod => prod.id === p.id);
+        if (producto) {
+          // Sugerir cantidad para llegar al stock mínimo + buffer
+          const sugerida = Math.max(0, producto.stockMinimo - p.final + 5);
+          initialItems[p.id] = sugerida;
+        }
+      });
+      setReposicionItems(initialItems);
+      setReposicionOpen(true);
     }
   };
 
-  const handleGuardarDia = async () => {
-    if (savingRef.current) return;
-    savingRef.current = true;
-    setSaving(true);
-    try {
-      if (!isToday) return;
+  const handleSubmitReposicion = async () => {
+    const currentVendedorId = vendedorId || vendedorIdTemporal;
+    if (!currentVendedorId || !user) return;
+    
+    const currentVendedor = vendedores.find(v => v.id === currentVendedorId);
+    if (!currentVendedor) return;
 
-      const currentVendedorId = vendedorId || vendedorIdTemporal;
-      const currentVendedor = vendedores.find(v => v.id === currentVendedorId);
-      if (!currentVendedorId || !currentVendedor) {
-        setGuardarVendedorOpen(true);
-        return;
-      }
-
-      for (const p of productosIPVE) {
-        // Guardar como diario
-        await agregarOActualizarRegistro({
-          fecha,
-          vendedorId: currentVendedorId,
-          vendedorNombre: currentVendedor.nombre,
-          productoId: p.id,
-          productoNombre: p.nombre,
-          inicio: p.inicio,
-          entrada: p.entrada,
-          final: p.final,
-          precioVenta: p.precioVenta,
-          tipo: 'diario'
-        });
-        // Guardar como histórico
-        await agregarOActualizarRegistro({
-          fecha,
-          vendedorId: currentVendedorId,
-          vendedorNombre: currentVendedor.nombre,
-          productoId: p.id,
-          productoNombre: p.nombre,
-          inicio: p.inicio,
-          entrada: p.entrada,
-          final: p.final,
-          precioVenta: p.precioVenta,
-          tipo: 'historico'
-        });
-      }
-      setSaved(true);
-      // Validar importe IPVE contra registro de cierre
-      validarCierre();
-    } catch (error) {
-      console.error('Error guardando el día:', error);
-      alert('Error al guardar el día: ' + (error instanceof Error ? error.message : 'error desconocido'));
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
+    const itemsToRequest = Object.entries(reposicionItems).filter(([, qty]) => qty > 0);
+    
+    for (const [productoId, cantidad] of itemsToRequest) {
+      const producto = productos.find(p => p.id === productoId);
+      if (!producto) continue;
+      
+      const ipveProducto = productosIPVE.find(p => p.id === productoId);
+      const finalActual = ipveProducto?.final ?? 0;
+      
+      await agregarPedido({
+        vendedorId: currentVendedorId,
+        vendedorNombre: currentVendedor.nombre,
+        productoId,
+        productoNombre: producto.nombre,
+        cantidad,
+        notas: `[REPOSICION] Stock final: ${finalActual} (mín: ${producto.stockMinimo}) - Solicitud automática tras guardar día`,
+        estado: 'pendiente',
+      });
     }
+    
+    if (itemsToRequest.length > 0) {
+      toast.success(`${itemsToRequest.length} solicitud(es) de reposición enviada(s)`);
+    } else {
+      toast.info('No se solicitaron productos');
+    }
+    
+    setReposicionOpen(false);
+    setReposicionItems({});
+  };
+
+  const updateReposicionItem = (productoId: string, value: number) => {
+    setReposicionItems(prev => ({ ...prev, [productoId]: Math.max(0, value) }));
   };
 
   const totales = useMemo(() => {
@@ -311,7 +384,7 @@ const handleConfirmarGuardarConVendedor = async () => {
   };
 
   useEffect(() => {
-    if (cierreComparacion !== undefined && !saving) {
+    if (cierreComparacion !== undefined) {
       validarCierre();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -426,21 +499,30 @@ const handleConfirmarGuardarConVendedor = async () => {
               Ingrese el inventario de productos en venta del día
             </DialogDescription>
             {alerta === 'sobrante' && cierreComparacion !== undefined && (
-              <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-3 rounded mb-4">
-                <p className="font-medium">⚠️ Sobrante detectado</p>
-                <p className="text-sm">El importe del IPVE (${totales.importe}) excede el total del registro de cierre (${cierreComparacion}). Verifique los datos.</p>
+              <div className="flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-left">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Sobrante detectado</p>
+                  <p className="text-sm text-muted-foreground">El importe del IPVE (${totales.importe}) excede el total del registro de cierre (${cierreComparacion}). Verifique los datos.</p>
+                </div>
               </div>
             )}
             {alerta === 'faltante' && cierreComparacion !== undefined && (
-              <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-3 rounded mb-4">
-                <p className="font-medium">⚠️ Faltante detectado</p>
-                <p className="text-sm">El importe del IPVE (${totales.importe}) es menor al total del registro de cierre (${cierreComparacion}). Faltan ${Math.abs(totales.importe - cierreComparacion)}.</p>
+              <div className="flex items-start gap-3 rounded-xl border border-warning/40 bg-warning/10 p-3 text-left">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning-foreground" aria-hidden />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Faltante detectado</p>
+                  <p className="text-sm text-muted-foreground">El importe del IPVE (${totales.importe}) es menor al total del registro de cierre (${cierreComparacion}). Faltan ${Math.abs(totales.importe - cierreComparacion)}.</p>
+                </div>
               </div>
             )}
             {alerta === null && cierreComparacion !== undefined && (
-              <div className="bg-green-100 border-l-4 border-green-500 text-green-700 p-3 rounded mb-4">
-                <p className="font-medium">✅ IPVE coincide con el registro de cierre</p>
-                <p className="text-sm">El importe del IPVE (${totales.importe}) coincide exactamente con el total del registro de cierre.</p>
+              <div className="flex items-start gap-3 rounded-xl border border-success/40 bg-success/10 p-3 text-left">
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" aria-hidden />
+                <div>
+                  <p className="text-sm font-medium text-foreground">IPVE coincide con el registro de cierre</p>
+                  <p className="text-sm text-muted-foreground">El importe del IPVE (${totales.importe}) coincide exactamente con el total del registro de cierre.</p>
+                </div>
               </div>
             )}
           </DialogHeader>
@@ -466,9 +548,9 @@ const handleConfirmarGuardarConVendedor = async () => {
             </div>
           </div>
 
-          {productosIPVE.length > 0 && (
+          {productosIPVE.length > 0 ? (
             <>
-              <div className="border rounded-lg overflow-hidden">
+              <div className="overflow-hidden rounded-xl border border-border">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -522,7 +604,7 @@ const handleConfirmarGuardarConVendedor = async () => {
                         </TableRow>
                       );
                     })}
-                    <TableRow className="bg-slate-100 font-bold">
+                    <TableRow className="bg-muted/50 font-semibold hover:bg-muted/50">
                       <TableCell>TOTAL</TableCell>
                       <TableCell className="text-right">{totales.inicio}</TableCell>
                       <TableCell className="text-right">{totales.entrada}</TableCell>
@@ -541,7 +623,7 @@ const handleConfirmarGuardarConVendedor = async () => {
                   onClick={handlePrint}
                   disabled={!isToday}
                 >
-                  <Printer className="w-4 h-4 mr-2" />
+                  <Printer aria-hidden />
                   Imprimir
                 </Button>
                 <Button 
@@ -549,41 +631,47 @@ const handleConfirmarGuardarConVendedor = async () => {
                   onClick={handleExportWord}
                   disabled={!isToday}
                 >
-                  <File className="w-4 h-4 mr-2" />
+                  <File aria-hidden />
                   Exportar Word
                 </Button>
-                <Button 
-                  onClick={handleSave}
-                  disabled={!isToday || saving}
+                <ActionButton 
+                  onAction={handleSave}
+                  disabled={!isToday}
                   variant={modoDiario ? "default" : "outline"}
+                  successMessage="Guardado"
                 >
-                  {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                  <Save className="w-4 h-4 mr-2" />
+                  <Save aria-hidden />
                   {saved && !modoDiario ? 'Guardado' : isToday ? 'Guardar' : 'No editable'}
-                </Button>
+                </ActionButton>
                 {modoDiario && (
-                  <Button 
-                    onClick={handleGuardarDia}
-                    disabled={!isToday || saving}
+                  <ActionButton 
+                    onAction={handleGuardarDia}
+                    disabled={!isToday}
                     variant="default"
-                    className="bg-green-600 hover:bg-green-700"
+                    className="bg-success text-success-foreground hover:bg-success/90"
+                    successMessage="Día guardado"
                   >
-                    {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                    <Save className="w-4 h-4 mr-2" />
+                    <Save aria-hidden />
                     Guardar Día
-                  </Button>
+                  </ActionButton>
                 )}
               </div>
             </>
+          ) : (
+            <EmptyState
+              icon={Package}
+              title="Sin productos para inventariar"
+              description="Cuando haya productos configurados, registra aquí el inicio, entrada y final de cada uno."
+            />
           )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            <X className="w-4 h-4 mr-2" />
+            <X aria-hidden />
             Cerrar
           </Button>
-</DialogFooter>
+        </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -617,13 +705,78 @@ const handleConfirmarGuardarConVendedor = async () => {
             >
               Cancelar
             </Button>
-            <Button 
-              onClick={handleConfirmarGuardarConVendedor} 
-              disabled={!vendedorIdTemporal || saving}
+            <ActionButton 
+              onAction={handleConfirmarGuardarConVendedor}
+              disabled={!vendedorIdTemporal}
+              successMessage="Guardado"
             >
-              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Guardar
+            </ActionButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={reposicionOpen} onOpenChange={(open) => { if (!open) setReposicionItems({}); setReposicionOpen(open); }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Solicitar Reposición</DialogTitle>
+            <DialogDescription>
+              Los siguientes productos tienen stock bajo (final ≤ stock mínimo). Ajuste las cantidades a solicitar.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="overflow-hidden rounded-xl border border-border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Producto</TableHead>
+                    <TableHead className="text-right">Stock Mín</TableHead>
+                    <TableHead className="text-right">Final Actual</TableHead>
+                    <TableHead className="text-right">Sugerido</TableHead>
+                    <TableHead className="text-right">A Solicitar</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {productosParaReposicion.map(producto => {
+                    const prodInfo = productos.find(p => p.id === producto.id);
+                    const sugerido = prodInfo ? Math.max(0, prodInfo.stockMinimo - producto.final + 5) : 0;
+                    const cantidadActual = reposicionItems[producto.id] ?? sugerido;
+                    
+                    return (
+                      <TableRow key={producto.id}>
+                        <TableCell className="font-medium">{producto.nombre}</TableCell>
+                        <TableCell className="text-right">{prodInfo?.stockMinimo ?? 0}</TableCell>
+                        <TableCell className="text-right font-bold text-destructive">{producto.final}</TableCell>
+                        <TableCell className="text-right text-muted-foreground">{sugerido}</TableCell>
+                        <TableCell className="text-right">
+                          <Input
+                            type="number"
+                            min="0"
+                            value={cantidadActual}
+                            onChange={(e) => updateReposicionItem(producto.id, parseInt(e.target.value) || 0)}
+                            className="w-24 text-right"
+                          />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReposicionOpen(false)}>
+              <X aria-hidden />
+              Cancelar
             </Button>
+            <ActionButton 
+              onAction={handleSubmitReposicion}
+              disabled={Object.values(reposicionItems).every(v => v === 0)}
+              successMessage="Solicitudes enviadas"
+            >
+              <ArrowUpCircle aria-hidden />
+              Enviar Solicitudes
+            </ActionButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

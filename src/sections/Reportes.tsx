@@ -1,27 +1,43 @@
 import { useState, useMemo } from 'react';
-import { 
-  BarChart3, TrendingUp, TrendingDown, DollarSign, Printer
+import {
+  BarChart3, TrendingUp, TrendingDown, DollarSign, Printer, Receipt, Wallet, SearchX
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { 
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue 
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
+} from '@/components/ui/table';
+import { PageHeader, EmptyState } from '@/components/shared';
+import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart as RePieChart, Pie, Cell, Legend,
   AreaChart, Area
 } from 'recharts';
-import { 
-  useVentasDiarias, useCompras, useGastos, 
-  formatCurrency, formatDate 
+import {
+  useVentasDiarias, useCompras, useGastos,
+  formatCurrency, formatDate
 } from '@/hooks/supabase/useSupabaseData';
 import type { Compra, Gasto, ReportFilters } from '@/types';
 
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+// Paleta de gráficos alineada con la marca: indigo principal + escala de apoyo
+// (indigo claro, cielo, teal, ámbar para alertas, rojo para negativo).
+const CHART_COLORS = ['#4f46e5', '#818cf8', '#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444'] as const;
+
+// Tooltip limpio y consistente para todos los gráficos.
+const CHART_TOOLTIP = {
+  contentStyle: {
+    borderRadius: '0.5rem',
+    border: '1px solid #e2e8f0',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+    fontSize: '0.875rem',
+  },
+} as const;
 
 export default function Reportes({ initialFilters }: { initialFilters?: ReportFilters }) {
   const { getVentasByFecha } = useVentasDiarias();
@@ -117,11 +133,23 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Reportes"
+        description="Analiza ventas, compras, gastos y utilidad del negocio"
+        icon={BarChart3}
+        actions={
+          <Button variant="outline" onClick={handlePrint}>
+            <Printer className="w-4 h-4 mr-2" />
+            Imprimir
+          </Button>
+        }
+      />
+
       {/* Filtros */}
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-col lg:flex-row gap-4 items-end">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 flex-1 w-full">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 flex-1 w-full">
               <div className="space-y-2">
                 <Label>Fecha Inicio</Label>
                 <Input
@@ -153,15 +181,6 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>Acciones</Label>
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={handlePrint} className="flex-1">
-                    <Printer className="w-4 h-4 mr-2" />
-                    Imprimir
-                  </Button>
-                </div>
-              </div>
             </div>
           </div>
         </CardContent>
@@ -173,10 +192,10 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Ventas</p>
-                <p className="text-xl font-bold text-green-600">{formatCurrency(data.resumen.totalVentas)}</p>
+                <p className="text-sm text-muted-foreground">Ventas</p>
+                <p className="text-xl font-bold text-success">{formatCurrency(data.resumen.totalVentas)}</p>
               </div>
-              <TrendingUp className="w-8 h-8 text-green-500" />
+              <TrendingUp className="w-8 h-8 text-success" />
             </div>
           </CardContent>
         </Card>
@@ -184,10 +203,10 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Compras</p>
-                <p className="text-xl font-bold text-blue-600">{formatCurrency(data.resumen.totalCompras)}</p>
+                <p className="text-sm text-muted-foreground">Compras</p>
+                <p className="text-xl font-bold text-primary">{formatCurrency(data.resumen.totalCompras)}</p>
               </div>
-              <TrendingDown className="w-8 h-8 text-blue-500" />
+              <TrendingDown className="w-8 h-8 text-primary" />
             </div>
           </CardContent>
         </Card>
@@ -195,10 +214,10 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Gastos</p>
-                <p className="text-xl font-bold text-red-600">{formatCurrency(data.resumen.totalGastos)}</p>
+                <p className="text-sm text-muted-foreground">Gastos</p>
+                <p className="text-xl font-bold text-destructive">{formatCurrency(data.resumen.totalGastos)}</p>
               </div>
-              <DollarSign className="w-8 h-8 text-red-500" />
+              <DollarSign className="w-8 h-8 text-destructive" />
             </div>
           </CardContent>
         </Card>
@@ -206,12 +225,12 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Utilidad</p>
-                <p className={`text-xl font-bold ${data.resumen.utilidad >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                <p className="text-sm text-muted-foreground">Utilidad</p>
+                <p className={`text-xl font-bold ${data.resumen.utilidad >= 0 ? 'text-success' : 'text-destructive'}`}>
                   {formatCurrency(data.resumen.utilidad)}
                 </p>
               </div>
-              <BarChart3 className="w-8 h-8 text-purple-500" />
+              <BarChart3 className="w-8 h-8 text-primary" />
             </div>
           </CardContent>
         </Card>
@@ -219,8 +238,8 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Margen</p>
-                <p className={`text-xl font-bold ${data.resumen.margen >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                <p className="text-sm text-muted-foreground">Margen</p>
+                <p className={`text-xl font-bold ${data.resumen.margen >= 0 ? 'text-success' : 'text-destructive'}`}>
                   {data.resumen.margen.toFixed(1)}%
                 </p>
               </div>
@@ -249,15 +268,15 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={[
-                      { name: 'Ventas', valor: data.resumen.totalVentas, fill: '#10b981' },
-                      { name: 'Compras', valor: data.resumen.totalCompras, fill: '#3b82f6' },
-                      { name: 'Gastos', valor: data.resumen.totalGastos, fill: '#ef4444' },
+                      { name: 'Ventas', valor: data.resumen.totalVentas, fill: CHART_COLORS[0] },
+                      { name: 'Compras', valor: data.resumen.totalCompras, fill: CHART_COLORS[2] },
+                      { name: 'Gastos', valor: data.resumen.totalGastos, fill: CHART_COLORS[5] },
                     ]}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="name" />
                       <YAxis tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`} />
-                      <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                      <Bar dataKey="valor" />
+                      <Tooltip formatter={(value: number) => formatCurrency(value)} {...CHART_TOOLTIP} />
+                      <Bar dataKey="valor" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -275,8 +294,8 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="fecha" tickFormatter={(value) => new Date(value).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })} />
                       <YAxis tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`} />
-                      <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                      <Area type="monotone" dataKey="total" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} />
+                      <Tooltip formatter={(value: number) => formatCurrency(value)} {...CHART_TOOLTIP} />
+                      <Area type="monotone" dataKey="total" stroke={CHART_COLORS[0]} fill={CHART_COLORS[0]} fillOpacity={0.3} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -298,8 +317,8 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="fecha" tickFormatter={(value) => new Date(value).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })} />
                       <YAxis tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`} />
-                      <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                      <Area type="monotone" dataKey="total" stroke="#10b981" fill="#10b981" fillOpacity={0.3} />
+                      <Tooltip formatter={(value: number) => formatCurrency(value)} {...CHART_TOOLTIP} />
+                      <Area type="monotone" dataKey="total" stroke={CHART_COLORS[0]} fill={CHART_COLORS[0]} fillOpacity={0.3} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -311,17 +330,25 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
                 <CardTitle className="text-lg">Productos Más Vendidos</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data.productosMasVendidos} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`} />
-                      <YAxis dataKey="nombre" type="category" width={150} />
-                      <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                      <Bar dataKey="total" fill="#3b82f6" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                {data.productosMasVendidos.length === 0 ? (
+                  <EmptyState
+                    icon={Receipt}
+                    title="Sin datos de productos"
+                    description="No hay compras registradas en el período seleccionado."
+                  />
+                ) : (
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={data.productosMasVendidos} layout="vertical">
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis type="number" tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`} />
+                        <YAxis dataKey="nombre" type="category" width={150} />
+                        <Tooltip formatter={(value: number) => formatCurrency(value)} {...CHART_TOOLTIP} />
+                        <Bar dataKey="total" fill={CHART_COLORS[0]} radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -333,26 +360,32 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
               <CardTitle className="text-lg">Historial de Compras</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-2">Fecha</th>
-                      <th className="text-left py-2">Comprador</th>
-                      <th className="text-right py-2">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              {data.compras.length === 0 ? (
+                <EmptyState
+                  icon={Receipt}
+                  title="Sin compras en este período"
+                  description="Ajusta el rango de fechas o registra compras para verlas aquí."
+                />
+              ) : (
+                <Table className="[&_td]:py-3 [&_th]:py-3">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Comprador</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {data.compras.slice().reverse().map((compra: Compra) => (
-                      <tr key={compra.id} className="border-b">
-                        <td className="py-2">{formatDate(compra.fecha)}</td>
-                        <td className="py-2">{compra.compradorNombre}</td>
-                        <td className="py-2 text-right">{formatCurrency(compra.total)}</td>
-                      </tr>
+                      <TableRow key={compra.id}>
+                        <TableCell>{formatDate(compra.fecha)}</TableCell>
+                        <TableCell>{compra.compradorNombre}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(compra.total)}</TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
-              </div>
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -364,28 +397,35 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
                 <CardTitle className="text-lg">Gastos por Categoría</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RePieChart>
-                      <Pie
-                        data={data.gastosPorCategoria}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) => `${getCategoriaLabel(name)} ${(percent * 100).toFixed(0)}%`}
-                        outerRadius={100}
-                        fill="#8884d8"
-                        dataKey="total"
-                      >
-                        {data.gastosPorCategoria.map((_entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                      <Legend />
-                    </RePieChart>
-                  </ResponsiveContainer>
-                </div>
+                {data.gastosPorCategoria.length === 0 ? (
+                  <EmptyState
+                    icon={Wallet}
+                    title="Sin gastos en este período"
+                    description="Ajusta el rango de fechas o registra gastos para verlos aquí."
+                  />
+                ) : (
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RePieChart>
+                        <Pie
+                          data={data.gastosPorCategoria}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ name, percent }) => `${getCategoriaLabel(name)} ${(percent * 100).toFixed(0)}%`}
+                          outerRadius={100}
+                          dataKey="total"
+                        >
+                          {data.gastosPorCategoria.map((_entry, index) => (
+                            <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value: number) => formatCurrency(value)} {...CHART_TOOLTIP} />
+                        <Legend />
+                      </RePieChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -394,28 +434,34 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
                 <CardTitle className="text-lg">Detalle de Gastos</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-2">Fecha</th>
-                        <th className="text-left py-2">Concepto</th>
-                        <th className="text-left py-2">Categoría</th>
-                        <th className="text-right py-2">Monto</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                {data.gastos.length === 0 ? (
+                  <EmptyState
+                    icon={SearchX}
+                    title="Sin gastos en este período"
+                    description="No se registraron gastos con los filtros actuales."
+                  />
+                ) : (
+                  <Table className="[&_td]:py-3 [&_th]:py-3">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead>Concepto</TableHead>
+                        <TableHead>Categoría</TableHead>
+                        <TableHead className="text-right">Monto</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {data.gastos.slice().reverse().map((gasto: Gasto) => (
-                        <tr key={gasto.id} className="border-b">
-                          <td className="py-2">{formatDate(gasto.fecha)}</td>
-                          <td className="py-2">{gasto.concepto}</td>
-                          <td className="py-2">{getCategoriaLabel(gasto.categoria)}</td>
-                          <td className="py-2 text-right">{formatCurrency(gasto.monto)}</td>
-                        </tr>
+                        <TableRow key={gasto.id}>
+                          <TableCell>{formatDate(gasto.fecha)}</TableCell>
+                          <TableCell>{gasto.concepto}</TableCell>
+                          <TableCell>{getCategoriaLabel(gasto.categoria)}</TableCell>
+                          <TableCell className="text-right">{formatCurrency(gasto.monto)}</TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -429,21 +475,21 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
             <CardContent>
               <div className="space-y-6">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="bg-green-50 p-4 rounded-lg">
-                    <p className="text-sm text-green-600">Ingresos Totales</p>
-                    <p className="text-2xl font-bold text-green-700">{formatCurrency(data.resumen.totalVentas)}</p>
+                  <div className="bg-success/10 p-4 rounded-lg">
+                    <p className="text-sm text-success">Ingresos Totales</p>
+                    <p className="text-2xl font-bold text-success">{formatCurrency(data.resumen.totalVentas)}</p>
                   </div>
-                  <div className="bg-red-50 p-4 rounded-lg">
-                    <p className="text-sm text-red-600">Costos Totales</p>
-                    <p className="text-2xl font-bold text-red-700">
+                  <div className="bg-destructive/10 p-4 rounded-lg">
+                    <p className="text-sm text-destructive">Costos Totales</p>
+                    <p className="text-2xl font-bold text-destructive">
                       {formatCurrency(data.resumen.totalCompras + data.resumen.totalGastos)}
                     </p>
                   </div>
-                  <div className={`p-4 rounded-lg ${data.resumen.utilidad >= 0 ? 'bg-blue-50' : 'bg-yellow-50'}`}>
-                    <p className={`text-sm ${data.resumen.utilidad >= 0 ? 'text-blue-600' : 'text-yellow-600'}`}>
+                  <div className={`p-4 rounded-lg ${data.resumen.utilidad >= 0 ? 'bg-primary/10' : 'bg-warning/15'}`}>
+                    <p className={`text-sm ${data.resumen.utilidad >= 0 ? 'text-primary' : 'text-warning-foreground'}`}>
                       Utilidad Neta
                     </p>
-                    <p className={`text-2xl font-bold ${data.resumen.utilidad >= 0 ? 'text-blue-700' : 'text-yellow-700'}`}>
+                    <p className={`text-2xl font-bold ${data.resumen.utilidad >= 0 ? 'text-primary' : 'text-warning-foreground'}`}>
                       {formatCurrency(data.resumen.utilidad)}
                     </p>
                   </div>
@@ -459,8 +505,8 @@ export default function Reportes({ initialFilters }: { initialFilters?: ReportFi
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="name" />
                       <YAxis tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`} />
-                      <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                      <Bar dataKey="valor" fill="#3b82f6" />
+                      <Tooltip formatter={(value: number) => formatCurrency(value)} {...CHART_TOOLTIP} />
+                      <Bar dataKey="valor" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>

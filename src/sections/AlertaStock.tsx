@@ -1,40 +1,63 @@
-import { AlertTriangle, Package, Check } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { AlertTriangle, CheckCircle2, Package } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
+import {
+  EmptyState,
+  PageHeader,
+  SearchInput,
+  SkeletonTable,
+  StatusBadge,
+  TablePagination,
+  usePagination,
+} from '@/components/shared';
 import { useProductos } from '@/hooks/supabase/useSupabaseData';
 
 export default function AlertaStock() {
   const { data: productos, loading } = useProductos();
+  const [query, setQuery] = useState('');
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
-  
-  const productosAlerta = productos.filter(p =>
-    (p.stock <= p.stockMinimo || p.stock <= 0) && p.activo
+  const productosAlerta = useMemo(
+    () => productos.filter(p =>
+      (p.stock <= p.stockMinimo || p.stock <= 0) && p.activo
+    ),
+    [productos]
   );
 
   const productosAgotados = productosAlerta.filter(p => p.stock <= 0);
   const productosBajoStock = productosAlerta.filter(p => p.stock > 0 && p.stock <= p.stockMinimo);
 
+  const alertaFiltrada = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return productosAlerta;
+    return productosAlerta.filter(
+      p => p.nombre.toLowerCase().includes(q) || p.categoria.toLowerCase().includes(q)
+    );
+  }, [productosAlerta, query]);
+
+  const { pageItems, page, pageCount, setPage, reset } = usePagination(alertaFiltrada);
+
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Alertas de Stock"
+        description="Productos que requieren reposición"
+        icon={AlertTriangle}
+      />
+
+      {/* Estadísticas */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Total en Alerta</p>
-                <p className="text-2xl font-bold text-red-600">{productosAlerta.length}</p>
+                <p className="text-sm text-muted-foreground">Total en Alerta</p>
+                <p className="text-2xl font-bold text-destructive">{productosAlerta.length}</p>
               </div>
-              <AlertTriangle className="w-8 h-8 text-red-500" />
+              <AlertTriangle className="w-8 h-8 text-destructive/70" />
             </div>
           </CardContent>
         </Card>
@@ -42,10 +65,10 @@ export default function AlertaStock() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Agotados</p>
-                <p className="text-2xl font-bold text-red-600">{productosAgotados.length}</p>
+                <p className="text-sm text-muted-foreground">Agotados</p>
+                <p className="text-2xl font-bold text-destructive">{productosAgotados.length}</p>
               </div>
-              <Package className="w-8 h-8 text-red-500" />
+              <Package className="w-8 h-8 text-destructive/70" />
             </div>
           </CardContent>
         </Card>
@@ -53,10 +76,10 @@ export default function AlertaStock() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Bajo Stock</p>
-                <p className="text-2xl font-bold text-yellow-600">{productosBajoStock.length}</p>
+                <p className="text-sm text-muted-foreground">Bajo Stock</p>
+                <p className="text-2xl font-bold text-warning-foreground">{productosBajoStock.length}</p>
               </div>
-              <AlertTriangle className="w-8 h-8 text-yellow-500" />
+              <AlertTriangle className="w-8 h-8 text-warning" />
             </div>
           </CardContent>
         </Card>
@@ -65,56 +88,68 @@ export default function AlertaStock() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-yellow-500" />
+            <AlertTriangle className="w-5 h-5 text-warning" />
             Productos que Requieren Reposición
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Producto</TableHead>
-                  <TableHead>Categoría</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead>Reponer</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {productosAlerta.length === 0 ? (
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <SearchInput
+              value={query}
+              onChange={(value) => { setQuery(value); reset(); }}
+              placeholder="Buscar por nombre o categoría…"
+            />
+          </div>
+
+          {loading ? (
+            <SkeletonTable cols={4} />
+          ) : productosAlerta.length === 0 ? (
+            <EmptyState
+              icon={CheckCircle2}
+              title="Sin productos en alerta"
+              description="Todo tu inventario está por encima del stock mínimo. ¡Buen trabajo!"
+            />
+          ) : alertaFiltrada.length === 0 ? (
+            <EmptyState
+              icon={Package}
+              title="Sin resultados para tu búsqueda"
+              description="Prueba con otro nombre de producto o categoría."
+            />
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center py-8 text-slate-500">
-                      <div className="flex flex-col items-center gap-2">
-                        <Check className="w-8 h-8 text-green-500" />
-                        <p>No hay productos en alerta</p>
-                      </div>
-                    </TableCell>
+                    <TableHead>Producto</TableHead>
+                    <TableHead>Categoría</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead>Reponer</TableHead>
                   </TableRow>
-                ) : (
-                  productosAlerta.map((producto) => (
+                </TableHeader>
+                <TableBody>
+                  {pageItems.map((producto) => (
                     <TableRow key={producto.id}>
-                      <TableCell className="font-medium">{producto.nombre}</TableCell>
-                      <TableCell>
+                      <TableCell className="py-3 font-medium">{producto.nombre}</TableCell>
+                      <TableCell className="py-3">
                         <Badge variant="outline">{producto.categoria}</Badge>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="py-3">
                         {producto.stock <= 0 ? (
-                          <Badge variant="destructive">Agotado</Badge>
+                          <StatusBadge tone="danger">Agotado</StatusBadge>
                         ) : (
-                          <Badge variant="destructive" className="bg-yellow-500">Bajo Stock</Badge>
+                          <StatusBadge tone="warning">Bajo Stock</StatusBadge>
                         )}
                       </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary" className="bg-green-100 text-green-800 border-green-300">
-                          Sí
-                        </Badge>
+                      <TableCell className="py-3">
+                        <StatusBadge tone="success">Sí</StatusBadge>
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  ))}
+                </TableBody>
+              </Table>
+              <TablePagination page={page} pageCount={pageCount} setPage={setPage} />
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

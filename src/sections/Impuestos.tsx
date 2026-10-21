@@ -1,36 +1,33 @@
-import { useState, useRef, useEffect } from 'react';
-import { 
-  Plus, Search, Edit2, Calculator, AlertTriangle,
-  CheckCircle, Clock, DollarSign, Loader2
+import { useState, useRef, useEffect, useMemo } from 'react';
+import {
+  Plus, Edit2, Calculator, AlertTriangle,
+  CheckCircle, Clock, DollarSign, Receipt, Search
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { toast } from 'sonner';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { 
-  Dialog, DialogContent, DialogHeader, DialogTitle, 
-  DialogDescription, DialogFooter 
-} from '@/components/ui/dialog';
-import { 
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue 
-} from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
-import { 
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  EmptyState,
+  PageHeader,
+  SearchInput,
+  SkeletonTable,
+  StatusBadge,
+  TablePagination,
+  usePagination,
+} from '@/components/shared';
 import { useImpuestos, formatCurrency, formatDate, toFechaLocal } from '@/hooks/supabase/useSupabaseData';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Impuesto } from '@/types';
-
-const tiposImpuesto = [
-  { value: 'iva', label: 'IVA' },
-  { value: 'renta', label: 'Renta' },
-  { value: 'ica', label: 'ICA' },
-  { value: 'otro', label: 'Otro' },
-  { value: 'onat', label: 'Pago ONAT' },
-  { value: 'deposito_bancario', label: 'Depósito Bancario' },
-];
+import {
+  ImpuestoFormDialog,
+  ImpuestoPagoDialog,
+  tiposImpuesto,
+  type ImpuestoFormState,
+} from './impuestos/ImpuestosDialogs';
 
 // Meses en español para el periodo de los impuestos mensuales fijos
 const MESES_ES = [
@@ -110,22 +107,44 @@ export default function Impuestos() {
       i.estado !== 'pagado'
   );
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<ImpuestoFormState>({
     nombre: '',
-    tipo: 'iva' as Impuesto['tipo'],
+    tipo: 'iva',
     periodo: '',
     fechaVencimiento: '',
     monto: '',
     notas: '',
   });
 
+  const handleFieldChange = (field: keyof ImpuestoFormState, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
   const filteredImpuestos = impuestos.filter((i: Impuesto) => {
-    const matchesSearch = 
+    const matchesSearch =
       i.nombre.toLowerCase().includes(searchQuery.toLowerCase()) ||
       i.periodo.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesTab = activeTab === 'todos' || i.estado === activeTab;
     return matchesSearch && matchesTab;
   });
+
+  // Mismo orden de presentación que antes: el más reciente primero
+  const impuestosOrdenados = useMemo(
+    () => [...filteredImpuestos].reverse(),
+    [filteredImpuestos]
+  );
+
+  const { pageItems, page, pageCount, setPage, reset } = usePagination(impuestosOrdenados);
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    reset();
+  };
+
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    reset();
+  };
 
   const handleOpenDialog = (impuesto?: Impuesto) => {
     if (impuesto) {
@@ -170,10 +189,14 @@ export default function Impuestos() {
 
       if (editingImpuesto) {
         await actualizarImpuesto(editingImpuesto.id, impuestoData);
+        toast.success('Impuesto actualizado');
       } else {
         await agregarImpuesto(impuestoData);
+        toast.success('Impuesto registrado');
       }
       setDialogOpen(false);
+    } catch (error) {
+      toast.error('No se pudo guardar el impuesto');
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -195,7 +218,7 @@ export default function Impuestos() {
         const nuevoMonto = parseFloat(montoPago) || 0;
         const totalPagado = impuestoToPay.montoPagado + nuevoMonto;
         const nuevoEstado: Impuesto['estado'] = totalPagado >= impuestoToPay.monto ? 'pagado' : 'pendiente';
-        
+
         const patch: Partial<Impuesto> = {
           montoPagado: totalPagado,
           estado: nuevoEstado,
@@ -210,21 +233,24 @@ export default function Impuestos() {
         setPagoDialogOpen(false);
         setImpuestoToPay(null);
         setMontoPago('');
+        toast.success('Pago registrado');
       }
+    } catch (error) {
+      toast.error('No se pudo registrar el pago');
     } finally {
       savingRef.current = false;
       setSaving(false);
     }
   };
 
-  const getEstadoBadge = (estado: Impuesto['estado']) => {
+  const estadoBadge = (estado: Impuesto['estado']) => {
     switch (estado) {
       case 'pagado':
-        return <Badge className="bg-green-500"><CheckCircle className="w-3 h-3 mr-1" /> Pagado</Badge>;
+        return <StatusBadge tone="success" className="gap-1"><CheckCircle className="size-3" aria-hidden /> Pagado</StatusBadge>;
       case 'pendiente':
-        return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800"><Clock className="w-3 h-3 mr-1" /> Pendiente</Badge>;
+        return <StatusBadge tone="warning" className="gap-1"><Clock className="size-3" aria-hidden /> Pendiente</StatusBadge>;
       case 'vencido':
-        return <Badge variant="destructive"><AlertTriangle className="w-3 h-3 mr-1" /> Vencido</Badge>;
+        return <StatusBadge tone="danger" className="gap-1"><AlertTriangle className="size-3" aria-hidden /> Vencido</StatusBadge>;
     }
   };
 
@@ -239,29 +265,40 @@ export default function Impuestos() {
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Impuestos"
+        description="Gestiona impuestos, pagos y vencimientos"
+        icon={Receipt}
+        actions={
+          <Button onClick={() => handleOpenDialog()}>
+            <Plus className="w-4 h-4 mr-2" />
+            Nuevo Impuesto
+          </Button>
+        }
+      />
+
       {/* Alerta mensual para el jefe: impuestos fijos del mes sin pagar */}
       {esJefe && impuestosMensualesPendientes.length > 0 && (
-        <div className="bg-amber-50 border border-amber-300 rounded-lg p-4">
+        <div className="border border-warning/40 bg-warning/10 rounded-lg p-4">
           <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+            <AlertTriangle className="w-5 h-5 text-warning-foreground mt-0.5 shrink-0" />
             <div className="flex-1 space-y-2">
-              <p className="font-semibold text-amber-800">
+              <p className="font-semibold text-warning-foreground">
                 Impuestos mensuales pendientes de pago — {periodoMes}
               </p>
               {impuestosMensualesPendientes.map((impuesto: Impuesto) => (
                 <div
                   key={impuesto.id}
-                  className="flex items-center justify-between gap-2 bg-white/70 rounded-md px-3 py-2"
+                  className="flex items-center justify-between gap-2 bg-card/70 rounded-md px-3 py-2"
                 >
                   <div>
-                    <p className="text-sm font-medium text-amber-900">{impuesto.nombre}</p>
-                    <p className="text-xs text-amber-700">
+                    <p className="text-sm font-medium text-warning-foreground">{impuesto.nombre}</p>
+                    <p className="text-xs text-warning-foreground/75">
                       Vence: {formatDate(impuesto.fechaVencimiento)} · Monto: {formatCurrency(impuesto.monto)}
                     </p>
                   </div>
                   <Button
                     size="sm"
-                    className="bg-amber-600 hover:bg-amber-700 text-white"
                     onClick={() => handleOpenPago(impuesto)}
                   >
                     Registrar pago
@@ -279,10 +316,10 @@ export default function Impuestos() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Total Impuestos</p>
+                <p className="text-sm text-muted-foreground">Total Impuestos</p>
                 <p className="text-2xl font-bold">{formatCurrency(totalImpuestos)}</p>
               </div>
-              <Calculator className="w-8 h-8 text-blue-500" />
+              <Calculator className="w-8 h-8 text-primary" />
             </div>
           </CardContent>
         </Card>
@@ -290,10 +327,10 @@ export default function Impuestos() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Pendiente</p>
-                <p className="text-2xl font-bold text-yellow-600">{formatCurrency(totalPendiente)}</p>
+                <p className="text-sm text-muted-foreground">Pendiente</p>
+                <p className="text-2xl font-bold text-warning-foreground">{formatCurrency(totalPendiente)}</p>
               </div>
-              <Clock className="w-8 h-8 text-yellow-500" />
+              <Clock className="w-8 h-8 text-warning" />
             </div>
           </CardContent>
         </Card>
@@ -301,10 +338,10 @@ export default function Impuestos() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Pagado</p>
-                <p className="text-2xl font-bold text-green-600">{formatCurrency(totalPagado)}</p>
+                <p className="text-sm text-muted-foreground">Pagado</p>
+                <p className="text-2xl font-bold text-success">{formatCurrency(totalPagado)}</p>
               </div>
-              <CheckCircle className="w-8 h-8 text-green-500" />
+              <CheckCircle className="w-8 h-8 text-success/70" />
             </div>
           </CardContent>
         </Card>
@@ -312,12 +349,12 @@ export default function Impuestos() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Vencidos</p>
-                <p className="text-2xl font-bold text-red-600">
+                <p className="text-sm text-muted-foreground">Vencidos</p>
+                <p className="text-2xl font-bold text-destructive">
                   {impuestos.filter((i: Impuesto) => i.estado === 'vencido').length}
                 </p>
               </div>
-              <AlertTriangle className="w-8 h-8 text-red-500" />
+              <AlertTriangle className="w-8 h-8 text-destructive/70" />
             </div>
           </CardContent>
         </Card>
@@ -325,34 +362,45 @@ export default function Impuestos() {
 
       {/* Lista de Impuestos */}
       <Card>
-        <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <CardTitle className="text-lg">Gestión de Impuestos</CardTitle>
-          <div className="flex gap-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <Input
-                placeholder="Buscar impuestos..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 w-full sm:w-48"
-              />
-            </div>
-            <Button onClick={() => handleOpenDialog()}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nuevo Impuesto
-            </Button>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <SearchInput
+              value={searchQuery}
+              onChange={handleSearchChange}
+              placeholder="Buscar impuestos…"
+            />
+            <Tabs value={activeTab} onValueChange={handleTabChange}>
+              <TabsList>
+                <TabsTrigger value="todos">Todos</TabsTrigger>
+                <TabsTrigger value="pendiente">Pendientes</TabsTrigger>
+                <TabsTrigger value="pagado">Pagados</TabsTrigger>
+                <TabsTrigger value="vencido">Vencidos</TabsTrigger>
+              </TabsList>
+            </Tabs>
           </div>
-        </CardHeader>
-        <CardContent>
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="mb-4">
-              <TabsTrigger value="todos">Todos</TabsTrigger>
-              <TabsTrigger value="pendiente">Pendientes</TabsTrigger>
-              <TabsTrigger value="pagado">Pagados</TabsTrigger>
-              <TabsTrigger value="vencido">Vencidos</TabsTrigger>
-            </TabsList>
-            
-            <div className="overflow-x-auto">
+
+          {loading ? (
+            <SkeletonTable cols={8} />
+          ) : impuestos.length === 0 ? (
+            <EmptyState
+              icon={Receipt}
+              title="Sin impuestos registrados"
+              description="Agrega tu primer impuesto para llevar el control de pagos y vencimientos."
+              action={
+                <Button onClick={() => handleOpenDialog()}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Nuevo Impuesto
+                </Button>
+              }
+            />
+          ) : impuestosOrdenados.length === 0 ? (
+            <EmptyState
+              icon={Search}
+              title="Sin resultados para tu búsqueda"
+              description="Ajusta la búsqueda o cambia de pestaña para ver otros impuestos."
+            />
+          ) : (
+            <>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -367,192 +415,67 @@ export default function Impuestos() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredImpuestos.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-slate-500">
-                        No se encontraron impuestos
+                  {pageItems.map((impuesto: Impuesto) => (
+                    <TableRow key={impuesto.id}>
+                      <TableCell className="py-3 font-medium">{impuesto.nombre}</TableCell>
+                      <TableCell className="py-3">{getTipoLabel(impuesto.tipo)}</TableCell>
+                      <TableCell className="py-3">{impuesto.periodo}</TableCell>
+                      <TableCell className="py-3">{formatDate(impuesto.fechaVencimiento)}</TableCell>
+                      <TableCell className="py-3 text-right">{formatCurrency(impuesto.monto)}</TableCell>
+                      <TableCell className="py-3 text-right">{formatCurrency(impuesto.montoPagado)}</TableCell>
+                      <TableCell className="py-3">{estadoBadge(impuesto.estado)}</TableCell>
+                      <TableCell className="py-3 text-right">
+                        <div className="flex justify-end gap-2">
+                          {impuesto.estado !== 'pagado' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleOpenPago(impuesto)}
+                            >
+                              <DollarSign className="w-4 h-4 mr-1" />
+                              Pagar
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleOpenDialog(impuesto)}
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
-                  ) : (
-                    filteredImpuestos.slice().reverse().map((impuesto: Impuesto) => (
-                      <TableRow key={impuesto.id}>
-                        <TableCell className="font-medium">{impuesto.nombre}</TableCell>
-                        <TableCell>{getTipoLabel(impuesto.tipo)}</TableCell>
-                        <TableCell>{impuesto.periodo}</TableCell>
-                        <TableCell>{formatDate(impuesto.fechaVencimiento)}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(impuesto.monto)}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(impuesto.montoPagado)}</TableCell>
-                        <TableCell>{getEstadoBadge(impuesto.estado)}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            {impuesto.estado !== 'pagado' && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleOpenPago(impuesto)}
-                              >
-                                <DollarSign className="w-4 h-4 mr-1" />
-                                Pagar
-                              </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleOpenDialog(impuesto)}
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
+                  ))}
                 </TableBody>
               </Table>
-            </div>
-          </Tabs>
+              <TablePagination page={page} pageCount={pageCount} setPage={setPage} />
+            </>
+          )}
         </CardContent>
       </Card>
 
       {/* Dialog para agregar/editar impuesto */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {editingImpuesto ? 'Editar Impuesto' : 'Nuevo Impuesto'}
-            </DialogTitle>
-            <DialogDescription>
-              Complete los datos del impuesto
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="nombre">Nombre *</Label>
-              <Input
-                id="nombre"
-                value={formData.nombre}
-                onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
-                placeholder="Ej: IVA Noviembre 2024"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="tipo">Tipo *</Label>
-              <Select 
-                value={formData.tipo} 
-                onValueChange={(value) => setFormData({ ...formData, tipo: value as Impuesto['tipo'] })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {tiposImpuesto.map(tipo => (
-                    <SelectItem key={tipo.value} value={tipo.value}>{tipo.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="periodo">Periodo *</Label>
-              <Input
-                id="periodo"
-                value={formData.periodo}
-                onChange={(e) => setFormData({ ...formData, periodo: e.target.value })}
-                placeholder="Ej: Noviembre 2024"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="vencimiento">Fecha de Vencimiento *</Label>
-              <Input
-                id="vencimiento"
-                type="date"
-                value={formData.fechaVencimiento}
-                onChange={(e) => setFormData({ ...formData, fechaVencimiento: e.target.value })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="monto">Monto *</Label>
-              <Input
-                id="monto"
-                type="number"
-                value={formData.monto}
-                onChange={(e) => setFormData({ ...formData, monto: e.target.value })}
-                placeholder="0"
-              />
-            </div>
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="notas">Notas</Label>
-              <Input
-                id="notas"
-                value={formData.notas}
-                onChange={(e) => setFormData({ ...formData, notas: e.target.value })}
-                placeholder="Notas adicionales..."
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {editingImpuesto ? 'Guardar Cambios' : 'Registrar Impuesto'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ImpuestoFormDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        editing={editingImpuesto}
+        formData={formData}
+        onFieldChange={handleFieldChange}
+        saving={saving}
+        onSave={handleSave}
+      />
 
       {/* Dialog para registrar pago */}
-      <Dialog open={pagoDialogOpen} onOpenChange={setPagoDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Registrar Pago de Impuesto</DialogTitle>
-            <DialogDescription>
-              {impuestoToPay?.nombre} - Periodo: {impuestoToPay?.periodo}
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4 py-4">
-            <div className="bg-slate-50 p-4 rounded-lg">
-              <div className="flex justify-between mb-2">
-                <span className="text-slate-600">Monto Total:</span>
-                <span className="font-medium">{formatCurrency(impuestoToPay?.monto || 0)}</span>
-              </div>
-              <div className="flex justify-between mb-2">
-                <span className="text-slate-600">Pagado:</span>
-                <span className="font-medium">{formatCurrency(impuestoToPay?.montoPagado || 0)}</span>
-              </div>
-              <div className="flex justify-between text-lg font-bold">
-                <span>Saldo Pendiente:</span>
-                <span>{formatCurrency((impuestoToPay?.monto || 0) - (impuestoToPay?.montoPagado || 0))}</span>
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="montoPago">Monto a Pagar *</Label>
-              <Input
-                id="montoPago"
-                type="number"
-                value={montoPago}
-                onChange={(e) => setMontoPago(e.target.value)}
-                placeholder="0"
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPagoDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleRegistrarPago} disabled={saving}>
-              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              <DollarSign className="w-4 h-4 mr-2" />
-              Registrar Pago
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ImpuestoPagoDialog
+        open={pagoDialogOpen}
+        onOpenChange={setPagoDialogOpen}
+        impuesto={impuestoToPay}
+        montoPago={montoPago}
+        onMontoPagoChange={setMontoPago}
+        saving={saving}
+        onConfirm={handleRegistrarPago}
+      />
     </div>
   );
 }

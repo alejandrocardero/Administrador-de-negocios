@@ -7,7 +7,7 @@
 // se fuerza un ciclo push→pull para dejar el espejo coherente.
 
 import { useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeft, Loader2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ChevronRight, Loader2 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
@@ -15,6 +15,10 @@ import { Button } from '@/components/ui/button';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { StatusBadge } from '@/components/shared';
 import { useSyncStatus } from '@/hooks/useSyncStatus';
 import { markResolved, type LocalConflict } from '@/lib/db/conflicts';
 import { db } from '@/lib/db/localDb';
@@ -64,6 +68,13 @@ function camposDelConflicto(conflicto: LocalConflict): string[] {
     ...Object.keys(conflicto.incomingVersion ?? {}),
   ]);
   return [...claves].filter((k) => !CAMPOS_TECNICOS.has(k)).sort();
+}
+
+/** Primer campo "legible" de la versión, para identificar el registro en las tarjetas. */
+function identificar(version: Record<string, unknown> | null | undefined, campos: string[]): string {
+  if (!version) return '—';
+  const campo = campos.find((c) => typeof version[c] === 'string' && (version[c] as string).trim() !== '');
+  return campo ? String(version[campo]) : '—';
 }
 
 type Resolucion = 'mine' | 'server' | 'both' | 'merged';
@@ -168,9 +179,9 @@ export default function ConflictResolver() {
   return (
     <>
       {/* Barra de alerta global: visible mientras haya conflictos abiertos */}
-      <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-red-800 text-sm min-w-0">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
+      <div className="flex items-center justify-between gap-3 border-b border-destructive/40 bg-destructive/10 px-4 py-2">
+        <div className="flex min-w-0 items-center gap-2 text-sm text-foreground">
+          <AlertTriangle className="size-4 shrink-0 text-destructive" aria-hidden />
           <span className="truncate">
             <strong>{conflicts.length}</strong>{' '}
             {conflicts.length === 1 ? 'conflicto de sincronización' : 'conflictos de sincronización'}{' '}
@@ -201,15 +212,17 @@ export default function ConflictResolver() {
                 <button
                   key={c.id}
                   onClick={() => abrirConflicto(c)}
-                  className="w-full text-left border border-slate-200 rounded-lg p-3 hover:bg-slate-50 flex items-center justify-between gap-3"
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-border p-4 text-left shadow-sm transition-colors hover:bg-muted/50"
                 >
                   <div className="min-w-0">
-                    <p className="font-medium text-sm">{TABLA_LABEL[c.tableName] ?? c.tableName}</p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-sm font-medium">{TABLA_LABEL[c.tableName] ?? c.tableName}</p>
+                    <p className="text-xs text-muted-foreground">
                       {KIND_LABEL[c.kind] ?? c.kind} · detectado {new Date(c.detectedAt).toLocaleString('es-CO')}
                     </p>
                   </div>
-                  <span className="text-xs text-blue-600 shrink-0">Revisar →</span>
+                  <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-medium text-primary">
+                    Revisar <ChevronRight className="size-3.5" aria-hidden />
+                  </span>
                 </button>
               ))}
             </div>
@@ -218,18 +231,44 @@ export default function ConflictResolver() {
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-medium">{TABLA_LABEL[conflictoActivo.tableName] ?? conflictoActivo.tableName}</p>
-                  <p className="text-xs text-slate-500">{KIND_LABEL[conflictoActivo.kind] ?? conflictoActivo.kind}</p>
+                  <p className="text-xs text-muted-foreground">{KIND_LABEL[conflictoActivo.kind] ?? conflictoActivo.kind}</p>
                 </div>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => { setConflictoActivo(null); setModoFusion(false); }}
                 >
-                  <ArrowLeft className="w-4 h-4 mr-1" /> Volver
+                  <ArrowLeft /> Volver
                 </Button>
               </div>
 
-              <div className="overflow-x-auto border rounded-lg">
+              {/* Comparación lado a lado: servidor vs este dispositivo */}
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-xl border border-border bg-card p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium">Versión del servidor</p>
+                    {conflictoActivo.serverVersion
+                      ? <StatusBadge tone="info">En el servidor</StatusBadge>
+                      : <StatusBadge tone="danger">Eliminado</StatusBadge>}
+                  </div>
+                  <p className="mt-2 truncate text-sm text-muted-foreground">
+                    {identificar(conflictoActivo.serverVersion, campos)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-border bg-card p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium">Mi versión</p>
+                    {conflictoActivo.incomingVersion
+                      ? <StatusBadge tone="info">Este dispositivo</StatusBadge>
+                      : <StatusBadge tone="danger">Eliminado</StatusBadge>}
+                  </div>
+                  <p className="mt-2 truncate text-sm text-muted-foreground">
+                    {identificar(conflictoActivo.incomingVersion, campos)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-border">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -245,20 +284,24 @@ export default function ConflictResolver() {
                       const mio = conflictoActivo.incomingVersion?.[campo];
                       const distinto = JSON.stringify(servidor) !== JSON.stringify(mio);
                       return (
-                        <TableRow key={campo} className={distinto ? 'bg-amber-50/60' : ''}>
+                        <TableRow key={campo} className={distinto ? 'bg-warning/10' : ''}>
                           <TableCell className="text-xs font-medium align-top">{campo}</TableCell>
-                          <TableCell className="text-xs align-top max-w-48 break-words">{formatear(servidor)}</TableCell>
-                          <TableCell className="text-xs align-top max-w-48 break-words">{formatear(mio)}</TableCell>
+                          <TableCell className="max-w-48 text-xs align-top break-words">{formatear(servidor)}</TableCell>
+                          <TableCell className="max-w-48 text-xs align-top break-words">{formatear(mio)}</TableCell>
                           {modoFusion && (
                             <TableCell className="align-top">
-                              <select
-                                className="text-xs border rounded px-1 py-0.5 w-full"
+                              <Select
                                 value={fusion[campo] ?? 'servidor'}
-                                onChange={(e) => setFusion({ ...fusion, [campo]: e.target.value as 'servidor' | 'mio' })}
+                                onValueChange={(v) => setFusion({ ...fusion, [campo]: v as 'servidor' | 'mio' })}
                               >
-                                <option value="servidor">Servidor</option>
-                                <option value="mio">Mío</option>
-                              </select>
+                                <SelectTrigger size="sm" className="w-full text-xs" aria-label={`Versión a conservar para ${campo}`}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="servidor">Servidor</SelectItem>
+                                  <SelectItem value="mio">Mío</SelectItem>
+                                </SelectContent>
+                              </Select>
                             </TableCell>
                           )}
                         </TableRow>
@@ -269,7 +312,7 @@ export default function ConflictResolver() {
               </div>
 
               {error && (
-                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">{error}</p>
+                <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
               )}
 
               {modoFusion ? (
@@ -278,7 +321,7 @@ export default function ConflictResolver() {
                     Cancelar fusión
                   </Button>
                   <Button onClick={() => resolver('merged', payloadFusionado())} disabled={ocupado}>
-                    {ocupado && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                    {ocupado && <Loader2 className="animate-spin" aria-hidden />}
                     Guardar fusión
                   </Button>
                 </div>
@@ -290,11 +333,15 @@ export default function ConflictResolver() {
                   <Button variant="outline" onClick={() => resolver('both', conflictoActivo.incomingVersion ?? null)} disabled={ocupado}>
                     Conservar ambas
                   </Button>
-                  <Button variant="outline" onClick={() => resolver('server', null)} disabled={ocupado}>
+                  <Button
+                    variant={conflictoActivo.kind === 'delete_update' ? 'destructive' : 'outline'}
+                    onClick={() => resolver('server', null)}
+                    disabled={ocupado}
+                  >
                     Usar la del servidor
                   </Button>
                   <Button onClick={() => resolver('mine', conflictoActivo.incomingVersion ?? null)} disabled={ocupado}>
-                    {ocupado && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                    {ocupado && <Loader2 className="animate-spin" aria-hidden />}
                     Usar mi versión
                   </Button>
                 </div>

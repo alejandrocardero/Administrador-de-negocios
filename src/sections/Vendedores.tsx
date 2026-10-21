@@ -1,13 +1,12 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
-import { Plus, Search, Edit2, Trash2, Loader2 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useState, useMemo, useCallback } from 'react';
+import { Plus, Edit2, Trash2, Users } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { ActionButton } from '@/components/ui/action-button';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter
 } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
@@ -16,16 +15,22 @@ import type { Vendedor } from '@/types';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { toast } from 'sonner';
+import {
+  PageHeader, SearchInput, EmptyState, SkeletonTable, SkeletonCards,
+  usePagination, TablePagination, StatusBadge, LabeledInput,
+} from '@/components/shared';
 
 const vendedorSchema = z.object({
   nombre: z.string().min(3, { message: "El nombre debe tener al menos 3 caracteres." }),
 });
 
 export default function Vendedores() {
-  const { 
-    data: vendedores, 
-    create: agregarVendedor, 
-    update: actualizarVendedor, 
+  const {
+    data: vendedores,
+    loading,
+    create: agregarVendedor,
+    update: actualizarVendedor,
     delete: eliminarVendedor,
   } = useVendedores();
 
@@ -34,8 +39,7 @@ export default function Vendedores() {
   const [editingVendedor, setEditingVendedor] = useState<Vendedor | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [vendedorToDelete, setVendedorToDelete] = useState<Vendedor | null>(null);
-  const [saving, setSaving] = useState(false);
-  const savingRef = useRef(false);
+  const [deleting, setDeleting] = useState(false);
 
   const { control, handleSubmit, reset, formState: { errors } } = useForm<z.infer<typeof vendedorSchema>>({
     resolver: zodResolver(vendedorSchema),
@@ -51,6 +55,8 @@ export default function Vendedores() {
     return searchQuery ? buscarVendedores(searchQuery) : vendedores;
   }, [searchQuery, vendedores, buscarVendedores]);
 
+  const { pageItems, page, pageCount, setPage, reset: resetPage } = usePagination(filteredVendedores);
+
   const handleOpenDialog = (vendedor?: Vendedor) => {
     if (vendedor) {
       setEditingVendedor(vendedor);
@@ -63,22 +69,18 @@ export default function Vendedores() {
   };
 
   const handleSave = async (data: z.infer<typeof vendedorSchema>) => {
-    if (savingRef.current) return;
-    savingRef.current = true;
-    setSaving(true);
     try {
       if (editingVendedor) {
         await actualizarVendedor(editingVendedor.id, data);
+        toast.success('Vendedor actualizado');
       } else {
         await agregarVendedor(data);
+        toast.success('Vendedor creado');
       }
       setDialogOpen(false);
     } catch (error) {
       console.error('Error guardando vendedor:', error);
-      alert('Error al guardar el vendedor');
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
+      toast.error('Error al guardar el vendedor');
     }
   };
 
@@ -88,86 +90,161 @@ export default function Vendedores() {
   };
 
   const confirmDelete = async () => {
-    if (vendedorToDelete) {
-      try {
-        await eliminarVendedor(vendedorToDelete.id);
-        setDeleteDialogOpen(false);
-        setVendedorToDelete(null);
-      } catch (error) {
-        console.error('Error eliminando vendedor:', error);
-        alert('Error al eliminar el vendedor');
-      }
+    if (!vendedorToDelete) return;
+    setDeleting(true);
+    try {
+      await eliminarVendedor(vendedorToDelete.id);
+      toast.success('Vendedor eliminado');
+      setDeleteDialogOpen(false);
+      setVendedorToDelete(null);
+    } catch (error) {
+      console.error('Error eliminando vendedor:', error);
+      toast.error('Error al eliminar el vendedor');
+    } finally {
+      setDeleting(false);
     }
   };
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Vendedores"
+        description="Gestiona el equipo de vendedores de tu negocio"
+        icon={Users}
+        actions={
+          <Button onClick={() => handleOpenDialog()}>
+            <Plus className="size-4" aria-hidden />
+            Nuevo Vendedor
+          </Button>
+        }
+      />
+
       <Card>
-        <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <CardTitle className="text-lg">Lista de Vendedores</CardTitle>
-          <div className="flex gap-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <Input
-                placeholder="Buscar vendedor..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 w-full sm:w-64"
-              />
-            </div>
-            <Button onClick={() => handleOpenDialog()}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nuevo Vendedor
-            </Button>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <SearchInput
+              value={searchQuery}
+              onChange={(value) => { setSearchQuery(value); resetPage(); }}
+              placeholder="Buscar vendedor..."
+            />
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nombre</TableHead>
-                  <TableHead>Fecha de Registro</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredVendedores.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={3} className="text-center py-8 text-slate-500">
-                      No se encontraron vendedores
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredVendedores.map((vendedor) => (
-                    <TableRow key={vendedor.id}>
-                      <TableCell className="font-medium">{vendedor.nombre}</TableCell>
-                      <TableCell>{formatDate(vendedor.fechaRegistro)}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleOpenDialog(vendedor)}
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDelete(vendedor)}
-                            className="text-red-500 hover:text-red-700"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+
+          {loading ? (
+            <>
+              <div className="hidden md:block">
+                <SkeletonTable cols={4} />
+              </div>
+              <div className="grid gap-4 md:hidden">
+                <SkeletonCards count={3} />
+              </div>
+            </>
+          ) : filteredVendedores.length === 0 ? (
+            <EmptyState
+              icon={Users}
+              title="No se encontraron vendedores"
+              description={
+                searchQuery
+                  ? "Ningún vendedor activo coincide con tu búsqueda."
+                  : "Agrega tu primer vendedor para comenzar."
+              }
+              action={
+                <Button onClick={() => handleOpenDialog()}>
+                  <Plus className="size-4" aria-hidden />
+                  Nuevo vendedor
+                </Button>
+              }
+            />
+          ) : (
+            <>
+              {/* Tabla: escritorio */}
+              <div className="hidden md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nombre</TableHead>
+                      <TableHead>Fecha de Registro</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  </TableHeader>
+                  <TableBody>
+                    {pageItems.map((vendedor) => (
+                      <TableRow key={vendedor.id} className="hover:bg-muted/50">
+                        <TableCell className="py-3 font-medium">{vendedor.nombre}</TableCell>
+                        <TableCell className="py-3">{formatDate(vendedor.fechaRegistro)}</TableCell>
+                        <TableCell className="py-3">
+                          <StatusBadge tone={vendedor.activo ? 'success' : 'neutral'}>
+                            {vendedor.activo ? 'Activo' : 'Inactivo'}
+                          </StatusBadge>
+                        </TableCell>
+                        <TableCell className="py-3 text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleOpenDialog(vendedor)}
+                              aria-label={`Editar ${vendedor.nombre}`}
+                            >
+                              <Edit2 className="size-4" aria-hidden />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(vendedor)}
+                              aria-label={`Eliminar ${vendedor.nombre}`}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="size-4" aria-hidden />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Cards: móvil */}
+              <div className="grid gap-4 md:hidden">
+                {pageItems.map((vendedor) => (
+                  <Card key={vendedor.id} className="rounded-xl p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{vendedor.nombre}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Registrado el {formatDate(vendedor.fechaRegistro)}
+                        </p>
+                      </div>
+                      <StatusBadge tone={vendedor.activo ? 'success' : 'neutral'}>
+                        {vendedor.activo ? 'Activo' : 'Inactivo'}
+                      </StatusBadge>
+                    </div>
+                    <div className="mt-3 flex justify-end gap-2 border-t border-border pt-3">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenDialog(vendedor)}
+                      >
+                        <Edit2 className="size-4" aria-hidden />
+                        Editar
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDelete(vendedor)}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="size-4" aria-hidden />
+                        Eliminar
+                      </Button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+
+              <TablePagination page={page} pageCount={pageCount} setPage={setPage} />
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -182,25 +259,25 @@ export default function Vendedores() {
               Complete el nombre del vendedor.
             </DialogDescription>
           </DialogHeader>
-          
-          <form onSubmit={handleSubmit(handleSave)} className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="nombre">Nombre Completo *</Label>
-              <Controller
-                name="nombre"
-                control={control}
-                render={({ field }) => (
-                  <Input {...field} id="nombre" placeholder="Nombre del vendedor" disabled={saving} />
-                )}
-              />
-              {errors.nombre && <p className="text-sm text-red-500">{errors.nombre.message}</p>}
-            </div>
-            <DialogFooter>
+
+          <form onSubmit={handleSubmit(handleSave)} className="space-y-4">
+            <Controller
+              name="nombre"
+              control={control}
+              render={({ field }) => (
+                <LabeledInput
+                  label="Nombre Completo *"
+                  placeholder="Nombre del vendedor"
+                  error={errors.nombre?.message}
+                  {...field}
+                />
+              )}
+            />
+            <DialogFooter className="gap-3 pt-2">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={saving}>
-                {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              <Button type="submit">
                 {editingVendedor ? 'Guardar Cambios' : 'Crear Vendedor'}
               </Button>
             </DialogFooter>
@@ -214,17 +291,17 @@ export default function Vendedores() {
           <DialogHeader>
             <DialogTitle>Confirmar Eliminación</DialogTitle>
             <DialogDescription>
-              ¿Está seguro de que desea eliminar al vendedor &quot;{vendedorToDelete?.nombre}&quot;?
+              ¿Está seguro de que desea eliminar al vendedor "{vendedorToDelete?.nombre}"?
               Esta acción marcará al vendedor como inactivo.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+          <DialogFooter className="gap-3 pt-2">
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>
               Cancelar
             </Button>
-            <Button variant="destructive" onClick={confirmDelete}>
+            <ActionButton variant="destructive" onAction={confirmDelete} disabled={deleting} successMessage="Eliminado">
               Eliminar
-            </Button>
+            </ActionButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -446,6 +446,7 @@ interface IPVEReturn {
   actualizarRegistro: (id: string, datos: Partial<RegistroIPVE>) => Promise<RegistroIPVE | null>
   getRegistrosByFecha: (fecha: string) => RegistroIPVE[]
   getRegistrosDiariosByFecha: (fecha: string) => RegistroIPVE[]
+  getRegistrosHistoricosByFecha: (fecha: string) => RegistroIPVE[]
   getRegistrosByVendedor: (vendedorId: string) => RegistroIPVE[]
   agregarEntrada: (fecha: string, vendedorId: string, productoId: string, productoNombre: string, cantidad: number, precioVenta: number, vendedorNombre?: string) => Promise<void>
   limpiarDiario: () => Promise<void>
@@ -494,6 +495,11 @@ export function useRegistrosIPVE(): IPVEReturn {
     [data]
   )
 
+  const getRegistrosHistoricosByFecha = useCallback((fecha: string) =>
+    data.filter(r => r.fecha === fecha && r.tipo === 'historico'),
+    [data]
+  )
+
   const getRegistrosByVendedor = useCallback((vendedorId: string) =>
     data.filter(r => r.vendedorId === vendedorId),
     [data]
@@ -529,6 +535,7 @@ export function useRegistrosIPVE(): IPVEReturn {
     actualizarRegistro,
     getRegistrosByFecha,
     getRegistrosDiariosByFecha,
+    getRegistrosHistoricosByFecha,
     getRegistrosByVendedor,
     agregarEntrada,
     limpiarDiario
@@ -779,7 +786,7 @@ export function useFiados(): FiadosReturn {
       const fiado = data.find(f => f.id === id)
       if (!fiado || fiado.estado === 'cobrado') return
 
-      await base.update(id, { estado: 'cobrado', fechaCobro: new Date().toISOString() })
+      await base.update(id, { estado: 'cobrado', fechaCobro: toFechaLocal(new Date()) })
 
       const ventaCobro = {
         fecha: toFechaLocal(new Date()),

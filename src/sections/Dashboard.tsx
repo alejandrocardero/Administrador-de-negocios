@@ -1,20 +1,34 @@
 import { useMemo } from 'react';
-import { 
-  TrendingUp, Package, DollarSign, 
-  ShoppingCart, AlertTriangle, Receipt, Wallet, Users
+import {
+  TrendingUp, Package, DollarSign,
+  ShoppingCart, AlertTriangle, Receipt, Wallet, Users, LayoutDashboard
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { 
+import { PageHeader, SkeletonCards } from '@/components/shared';
+import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
-import { 
-  useVentasDiarias, useCompras, useGastos, useProductos, 
+import {
+  useVentasDiarias, useCompras, useGastos, useProductos,
   useMovimientosCaja,
   useImpuestos,
-  formatCurrency 
+  formatCurrency
 } from '@/hooks/supabase/useSupabaseData';
 import type { Impuesto, Section, Producto } from '@/types';
 import { cn } from '@/lib/utils';
+
+// Paleta de gráficos alineada con la marca: indigo principal + escala de apoyo.
+const CHART_COLORS = ['#4f46e5', '#818cf8', '#0ea5e9', '#14b8a6', '#f59e0b', '#ef4444'] as const;
+
+// Tooltip limpio y consistente para todos los gráficos.
+const CHART_TOOLTIP = {
+  contentStyle: {
+    borderRadius: '0.5rem',
+    border: '1px solid #e2e8f0',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+    fontSize: '0.875rem',
+  },
+} as const;
 
 interface Alerta {
   tipo: string;
@@ -22,31 +36,32 @@ interface Alerta {
   severidad: 'error' | 'warning';
 }
 
-function KPICard({ 
-  title, 
-  value, 
-  subtitle, 
+function KPICard({
+  title,
+  value,
+  subtitle,
   icon: Icon,
   color = 'blue',
   onClick
-}: { 
-  title: string; 
-  value: string; 
+}: {
+  title: string;
+  value: string;
   subtitle?: string;
   icon: React.ElementType;
   color?: 'blue' | 'green' | 'red' | 'yellow' | 'purple';
   onClick?: () => void;
 }) {
+  // Variantes suaves derivadas de tokens semánticos (tinte /10 o /15 + texto del tono).
   const colorClasses = {
-    blue: 'bg-blue-50 text-blue-600',
-    green: 'bg-green-50 text-green-600',
-    red: 'bg-red-50 text-red-600',
-    yellow: 'bg-yellow-50 text-yellow-600',
-    purple: 'bg-purple-50 text-purple-600',
+    blue: 'bg-primary/10 text-primary',
+    green: 'bg-success/10 text-success',
+    red: 'bg-destructive/10 text-destructive',
+    yellow: 'bg-warning/15 text-warning-foreground',
+    purple: 'bg-primary/15 text-primary',
   };
 
   return (
-    <div 
+    <div
       onClick={onClick}
       className={cn(
         'transition-all duration-200',
@@ -57,11 +72,11 @@ function KPICard({
         <CardContent className="p-6">
           <div className="flex items-start justify-between">
             <div className="flex-1">
-              <p className="text-sm font-medium text-slate-500">{title}</p>
-              <h3 className="text-2xl font-bold text-slate-900 mt-1">{value}</h3>
-              {subtitle && <p className="text-xs text-slate-400 mt-1">{subtitle}</p>}
+              <p className="text-sm font-medium text-muted-foreground">{title}</p>
+              <h3 className="text-2xl font-bold text-foreground mt-1">{value}</h3>
+              {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
             </div>
-            <div className={`p-3 rounded-lg ${colorClasses[color]}`}>
+            <div className={cn('p-3 rounded-lg', colorClasses[color])}>
               <Icon className="w-6 h-6" />
             </div>
           </div>
@@ -77,12 +92,12 @@ function AlertasPanel({ alertas }: { alertas: Alerta[] }) {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-green-500" />
+            <AlertTriangle className="w-5 h-5 text-success" />
             Alertas
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-500 text-center py-4">No hay alertas pendientes</p>
+          <p className="text-muted-foreground text-center py-4">No hay alertas pendientes</p>
         </CardContent>
       </Card>
     );
@@ -92,20 +107,21 @@ function AlertasPanel({ alertas }: { alertas: Alerta[] }) {
     <Card>
       <CardHeader>
         <CardTitle className="text-lg flex items-center gap-2">
-          <AlertTriangle className="w-5 h-5 text-yellow-500" />
+          <AlertTriangle className="w-5 h-5 text-warning" />
           Alertas ({alertas.length})
         </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="space-y-2 max-h-48 overflow-y-auto">
           {alertas.map((alerta, index) => (
-            <div 
+            <div
               key={index}
-              className={`p-3 rounded-lg text-sm ${
-                alerta.severidad === 'error' 
-                  ? 'bg-red-50 text-red-700 border border-red-200' 
-                  : 'bg-yellow-50 text-yellow-700 border border-yellow-200'
-              }`}
+              className={cn(
+                'p-3 rounded-lg text-sm border',
+                alerta.severidad === 'error'
+                  ? 'bg-destructive/10 text-destructive border-destructive/30'
+                  : 'bg-warning/15 text-warning-foreground border-warning/30'
+              )}
             >
               {alerta.mensaje}
             </div>
@@ -116,17 +132,19 @@ function AlertasPanel({ alertas }: { alertas: Alerta[] }) {
   );
 }
 
-export default function Dashboard({ 
-  onSectionChange 
-}: { 
-  onSectionChange: (section: Section) => void 
+export default function Dashboard({
+  onSectionChange
+}: {
+  onSectionChange: (section: Section) => void
 }) {
-  const { data: ventas = [] } = useVentasDiarias();
-  const { data: compras = [] } = useCompras();
-  const { data: gastos = [] } = useGastos();
-  const { data: productos = [] } = useProductos();
+  const { data: ventas = [], loading: loadingVentas } = useVentasDiarias();
+  const { data: compras = [], loading: loadingCompras } = useCompras();
+  const { data: gastos = [], loading: loadingGastos } = useGastos();
+  const { data: productos = [], loading: loadingProductos } = useProductos();
   const { data: movimientos = [] } = useMovimientosCaja();
-  const { data: impuestos = [] } = useImpuestos();
+  const { data: impuestos = [], loading: loadingImpuestos } = useImpuestos();
+
+  const cargando = loadingVentas || loadingCompras || loadingGastos || loadingProductos || loadingImpuestos;
 
   const hoy = new Date();
   const hoyISO = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
@@ -150,7 +168,7 @@ export default function Dashboard({
     const totalSalariosMes = ventasMes.reduce((sum, v) => sum + v.salarioCalculado, 0);
     const totalComprasMes = comprasMes.reduce((sum, c) => sum + c.total, 0);
     const totalGastosMes = gastosMes.reduce((sum, g) => sum + g.monto, 0);
-    
+
     const productosBajoStock = productos.filter(p => p.stock <= p.stockMinimo && p.activo);
     // const cxpPendientes = cxp.filter(c => c.estado !== 'pagado'); // Removed as CuentasPorPagar is deprecated
 
@@ -215,76 +233,90 @@ export default function Dashboard({
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Dashboard"
+        description="Resumen general del negocio en tiempo real"
+        icon={LayoutDashboard}
+      />
+
       {/* KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard
-          title="Ventas Hoy"
-          value={formatCurrency(stats.ventasHoy)}
-          subtitle="Total del día"
-          icon={ShoppingCart}
-          color="blue"
-          onClick={() => onSectionChange({ id: 'reportes', params: { reporteTipo: 'ventas', fechaInicio: hoyISO, fechaFin: hoyISO } })}
-        />
-        <KPICard
-          title="Ventas del Mes"
-          value={formatCurrency(stats.ventasMes)}
-          subtitle="Este mes"
-          icon={TrendingUp}
-          color="green"
-          onClick={() => onSectionChange({ id: 'reportes', params: { reporteTipo: 'ventas', fechaInicio: inicioMesISO, fechaFin: finMesISO } })}
-        />
-        <KPICard
-          title="Utilidad del Mes"
-          value={formatCurrency(stats.utilidadMes)}
-          subtitle="Ventas - Compras - Gastos"
-          icon={DollarSign}
-          color="purple"
-          onClick={() => onSectionChange({ id: 'reportes', params: { reporteTipo: 'utilidad', fechaInicio: inicioMesISO, fechaFin: finMesISO } })}
-        />
-        <KPICard
-          title="Balance de Caja"
-          value={formatCurrency(stats.balanceCaja)}
-          subtitle="Disponible"
-          icon={Wallet}
-          color="yellow"
-        />
-      </div>
+      {cargando ? (
+        <SkeletonCards count={4} />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <KPICard
+            title="Ventas Hoy"
+            value={formatCurrency(stats.ventasHoy)}
+            subtitle="Total del día"
+            icon={ShoppingCart}
+            color="blue"
+            onClick={() => onSectionChange({ id: 'reportes', params: { reporteTipo: 'ventas', fechaInicio: hoyISO, fechaFin: hoyISO } })}
+          />
+          <KPICard
+            title="Ventas del Mes"
+            value={formatCurrency(stats.ventasMes)}
+            subtitle="Este mes"
+            icon={TrendingUp}
+            color="green"
+            onClick={() => onSectionChange({ id: 'reportes', params: { reporteTipo: 'ventas', fechaInicio: inicioMesISO, fechaFin: finMesISO } })}
+          />
+          <KPICard
+            title="Utilidad del Mes"
+            value={formatCurrency(stats.utilidadMes)}
+            subtitle="Ventas - Compras - Gastos"
+            icon={DollarSign}
+            color="purple"
+            onClick={() => onSectionChange({ id: 'reportes', params: { reporteTipo: 'utilidad', fechaInicio: inicioMesISO, fechaFin: finMesISO } })}
+          />
+          <KPICard
+            title="Balance de Caja"
+            value={formatCurrency(stats.balanceCaja)}
+            subtitle="Disponible"
+            icon={Wallet}
+            color="yellow"
+          />
+        </div>
+      )}
 
       {/* Segunda fila de KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard
-          title="Productos Bajo Stock"
-          value={stats.productosBajoStock.toString()}
-          subtitle="Requieren atención"
-          icon={Package}
-          color="red"
-          onClick={() => onSectionChange({ id: 'inventario' })}
-        />
-        <KPICard
-          title="Salarios del Mes"
-          value={formatCurrency(stats.salariosMes)}
-          subtitle="Total salarios calculados"
-          icon={Users}
-          color="blue"
-          onClick={() => onSectionChange({ id: 'vendedores' })}
-        />
-        <KPICard
-          title="Compras del Mes"
-          value={formatCurrency(stats.comprasMes)}
-          subtitle="Total compras"
-          icon={Receipt}
-          color="yellow"
-          onClick={() => onSectionChange({ id: 'reportes', params: { reporteTipo: 'compras', fechaInicio: inicioMesISO, fechaFin: finMesISO } })}
-        />
-        <KPICard
-          title="Impuestos Pendientes"
-          value={impuestos.filter(i => i.estado === 'pendiente' || i.estado === 'vencido').length.toString()}
-          subtitle="Por pagar"
-          icon={Receipt}
-          color="red"
-          onClick={() => onSectionChange({ id: 'impuestos' })}
-        />
-      </div>
+      {cargando ? (
+        <SkeletonCards count={4} />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <KPICard
+            title="Productos Bajo Stock"
+            value={stats.productosBajoStock.toString()}
+            subtitle="Requieren atención"
+            icon={Package}
+            color="red"
+            onClick={() => onSectionChange({ id: 'inventario' })}
+          />
+          <KPICard
+            title="Salarios del Mes"
+            value={formatCurrency(stats.salariosMes)}
+            subtitle="Total salarios calculados"
+            icon={Users}
+            color="blue"
+            onClick={() => onSectionChange({ id: 'vendedores' })}
+          />
+          <KPICard
+            title="Compras del Mes"
+            value={formatCurrency(stats.comprasMes)}
+            subtitle="Total compras"
+            icon={Receipt}
+            color="yellow"
+            onClick={() => onSectionChange({ id: 'reportes', params: { reporteTipo: 'compras', fechaInicio: inicioMesISO, fechaFin: finMesISO } })}
+          />
+          <KPICard
+            title="Impuestos Pendientes"
+            value={impuestos.filter(i => i.estado === 'pendiente' || i.estado === 'vencido').length.toString()}
+            subtitle="Por pagar"
+            icon={Receipt}
+            color="red"
+            onClick={() => onSectionChange({ id: 'impuestos' })}
+          />
+        </div>
+      )}
 
       {/* Gráficos */}
       <div className="grid grid-cols-1 gap-6">
@@ -299,8 +331,8 @@ export default function Dashboard({
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="dia" />
                   <YAxis tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                  <Bar dataKey="ventas" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  <Tooltip formatter={(value: number) => formatCurrency(value)} {...CHART_TOOLTIP} />
+                  <Bar dataKey="ventas" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

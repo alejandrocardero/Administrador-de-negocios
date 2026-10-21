@@ -1,21 +1,26 @@
-import { useState, useRef } from 'react';
-import { 
-  Plus, Search, Edit2, Trash2, Wallet, Loader2
+import { useState, useRef, useMemo } from 'react';
+import {
+  Plus, Edit2, Trash2, Wallet, Loader2, SearchX
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { toast } from 'sonner';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { 
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue 
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { 
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
-import { 
-  Dialog, DialogContent, DialogHeader, DialogTitle, 
-  DialogDescription, DialogFooter 
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogDescription, DialogFooter
 } from '@/components/ui/dialog';
+import {
+  PageHeader, SearchInput, EmptyState, SkeletonTable, SkeletonCards,
+  usePagination, TablePagination
+} from '@/components/shared';
 import { useGastos, formatCurrency, formatDate, toFechaLocal } from '@/hooks/supabase/useSupabaseData';
 import type { Gasto } from '@/types';
 
@@ -29,10 +34,11 @@ const categoriasGasto = [
 ];
 
 export default function Gastos() {
-  const { 
-    data: gastos, 
-    create: agregarGasto, 
-    update: actualizarGasto, 
+  const {
+    data: gastos,
+    loading,
+    create: agregarGasto,
+    update: actualizarGasto,
     delete: eliminarGasto,
   } = useGastos();
 
@@ -61,12 +67,18 @@ export default function Gastos() {
   };
 
   const filteredGastos = gastos.filter((g: Gasto) => {
-    const matchesSearch = 
+    const matchesSearch =
       g.concepto.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (g.descripcion?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false);
     const matchesCategoria = categoriaFilter === 'todas' || g.categoria === categoriaFilter;
     return matchesSearch && matchesCategoria;
   });
+
+  const gastosOrdenados = useMemo(
+    () => filteredGastos.slice().reverse(),
+    [filteredGastos]
+  );
+  const { pageItems, page, pageCount, setPage, reset } = usePagination(gastosOrdenados, 10);
 
   const handleOpenDialog = (gasto?: Gasto) => {
     if (gasto) {
@@ -109,13 +121,15 @@ export default function Gastos() {
 
       if (editingGasto) {
         await actualizarGasto(editingGasto.id, gastoData);
+        toast.success('Gasto actualizado');
       } else {
         await agregarGasto(gastoData);
+        toast.success('Gasto registrado');
       }
       setDialogOpen(false);
     } catch (error) {
       console.error('Error guardando gasto:', error);
-      alert('Error al guardar el gasto');
+      toast.error('Error al guardar el gasto');
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -131,11 +145,12 @@ export default function Gastos() {
     if (gastoToDelete) {
       try {
         await eliminarGasto(gastoToDelete.id);
+        toast.success('Gasto eliminado');
         setDeleteDialogOpen(false);
         setGastoToDelete(null);
       } catch (error) {
         console.error('Error eliminando gasto:', error);
-        alert('Error al eliminar el gasto');
+        toast.error('Error al eliminar el gasto');
       }
     }
   };
@@ -146,64 +161,80 @@ export default function Gastos() {
 
   const gastosMes = getGastosMes();
   const totalGastosMes = gastosMes.reduce((sum: number, g: Gasto) => sum + g.monto, 0);
-  
+
   const gastosPorCategoria = categoriasGasto.map(cat => ({
     ...cat,
     total: gastosMes.filter((g: Gasto) => g.categoria === cat.value).reduce((sum: number, g: Gasto) => sum + g.monto, 0),
   })).filter(cat => cat.total > 0);
 
+  const hayFiltros = searchQuery !== '' || categoriaFilter !== 'todas';
+
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Gastos"
+        description="Registra y controla los gastos del negocio"
+        icon={Wallet}
+        actions={
+          <Button onClick={() => handleOpenDialog()}>
+            <Plus className="w-4 h-4 mr-2" />
+            Nuevo Gasto
+          </Button>
+        }
+      />
+
       {/* Estadísticas */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-500">Gastos del Mes</p>
-                <p className="text-2xl font-bold">{formatCurrency(totalGastosMes)}</p>
-                <p className="text-xs text-slate-400">{gastosMes.length} gastos</p>
+      {loading ? (
+        <SkeletonCards count={3} />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Gastos del Mes</p>
+                  <p className="text-2xl font-bold">{formatCurrency(totalGastosMes)}</p>
+                  <p className="text-xs text-muted-foreground">{gastosMes.length} gastos</p>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-500">Total Gastos</p>
-                <p className="text-2xl font-bold">{gastos.length}</p>
-                <p className="text-xs text-slate-400">Registrados</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Gastos</p>
+                  <p className="text-2xl font-bold">{gastos.length}</p>
+                  <p className="text-xs text-muted-foreground">Registrados</p>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-500">Promedio Diario</p>
-                <p className="text-2xl font-bold">
-                  {formatCurrency(gastosMes.length > 0 ? totalGastosMes / 30 : 0)}
-                </p>
-                <p className="text-xs text-slate-400">Este mes</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Promedio Diario</p>
+                  <p className="text-2xl font-bold">
+                    {formatCurrency(gastosMes.length > 0 ? totalGastosMes / 30 : 0)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Este mes</p>
+                </div>
+                <Wallet className="w-8 h-8 text-success shrink-0" />
               </div>
-              <Wallet className="w-8 h-8 text-green-500" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Gastos por Categoría */}
       {gastosPorCategoria.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Gastos por Categoría - Este Mes</CardTitle>
-          </CardHeader>
-          <CardContent>
+          <CardContent className="pt-6">
+            <h2 className="text-lg font-semibold mb-4">Gastos por Categoría - Este Mes</h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
               {gastosPorCategoria.map((cat) => (
-                <div key={cat.value} className="bg-slate-50 p-3 rounded-lg">
+                <div key={cat.value} className="bg-muted p-3 rounded-lg">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-sm font-medium">{cat.label}</span>
                   </div>
@@ -217,63 +248,73 @@ export default function Gastos() {
 
       {/* Lista de Gastos */}
       <Card>
-        <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <CardTitle className="text-lg">Historial de Gastos</CardTitle>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <Input
-                placeholder="Buscar gastos..."
+        <CardContent className="pt-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">Historial de Gastos</h2>
+            <div className="flex flex-wrap items-center gap-3">
+              <SearchInput
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 w-full sm:w-48"
+                onChange={(v) => { setSearchQuery(v); reset(); }}
+                placeholder="Buscar gastos..."
               />
+              <Select
+                value={categoriaFilter}
+                onValueChange={(v) => { setCategoriaFilter(v); reset(); }}
+              >
+                <SelectTrigger className="w-full sm:w-40">
+                  <SelectValue placeholder="Categoría" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todas">Todas</SelectItem>
+                  {categoriasGasto.map(cat => (
+                    <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <Select value={categoriaFilter} onValueChange={setCategoriaFilter}>
-              <SelectTrigger className="w-full sm:w-40">
-                <SelectValue placeholder="Categoría" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todas">Todas</SelectItem>
-                {categoriasGasto.map(cat => (
-                  <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button onClick={() => handleOpenDialog()}>
-              <Plus className="w-4 h-4 mr-2" />
-              Nuevo Gasto
-            </Button>
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Concepto</TableHead>
-                  <TableHead>Categoría</TableHead>
-                  <TableHead>Método de Pago</TableHead>
-                  <TableHead className="text-right">Monto</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredGastos.length === 0 ? (
+
+          {loading ? (
+            <SkeletonTable rows={6} cols={6} />
+          ) : filteredGastos.length === 0 ? (
+            <EmptyState
+              icon={hayFiltros ? SearchX : Wallet}
+              title={hayFiltros ? 'Sin resultados' : 'No hay gastos'}
+              description={
+                hayFiltros
+                  ? 'Ningún gasto coincide con tu búsqueda o filtro.'
+                  : 'Registra tu primer gasto para llevar el control.'
+              }
+              action={
+                !hayFiltros ? (
+                  <Button onClick={() => handleOpenDialog()}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    Nuevo Gasto
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <>
+              <Table className="[&_td]:py-3 [&_th]:py-3">
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-slate-500">
-                      No se encontraron gastos
-                    </TableCell>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Concepto</TableHead>
+                    <TableHead>Categoría</TableHead>
+                    <TableHead>Método de Pago</TableHead>
+                    <TableHead className="text-right">Monto</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
-                ) : (
-                  filteredGastos.slice().reverse().map((gasto: Gasto) => (
+                </TableHeader>
+                <TableBody>
+                  {pageItems.map((gasto: Gasto) => (
                     <TableRow key={gasto.id}>
                       <TableCell>{formatDate(gasto.fecha)}</TableCell>
                       <TableCell className="font-medium">{gasto.concepto}</TableCell>
                       <TableCell>{getCategoriaLabel(gasto.categoria)}</TableCell>
                       <TableCell className="capitalize">{gasto.metodoPago}</TableCell>
-                      <TableCell className="text-right font-medium text-red-600">
+                      <TableCell className="text-right font-medium text-destructive">
                         -{formatCurrency(gasto.monto)}
                       </TableCell>
                       <TableCell className="text-right">
@@ -289,18 +330,19 @@ export default function Gastos() {
                             variant="ghost"
                             size="icon"
                             onClick={() => handleDelete(gasto)}
-                            className="text-red-500 hover:text-red-700"
+                            className="text-destructive hover:text-destructive/80"
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  ))}
+                </TableBody>
+              </Table>
+              <TablePagination page={page} pageCount={pageCount} setPage={setPage} />
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -315,7 +357,7 @@ export default function Gastos() {
               Complete los datos del gasto
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="fecha">Fecha *</Label>
@@ -328,8 +370,8 @@ export default function Gastos() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="categoria">Categoría *</Label>
-              <Select 
-                value={formData.categoria} 
+              <Select
+                value={formData.categoria}
                 onValueChange={(value) => setFormData({ ...formData, categoria: value as Gasto['categoria'] })}
               >
                 <SelectTrigger>
@@ -363,8 +405,8 @@ export default function Gastos() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="metodoPago">Método de Pago *</Label>
-              <Select 
-                value={formData.metodoPago} 
+              <Select
+                value={formData.metodoPago}
                 onValueChange={(value) => setFormData({ ...formData, metodoPago: value as Gasto['metodoPago'] })}
               >
                 <SelectTrigger>
@@ -406,7 +448,7 @@ export default function Gastos() {
           <DialogHeader>
             <DialogTitle>Confirmar Eliminación</DialogTitle>
             <DialogDescription>
-              ¿Está seguro de que desea eliminar el gasto &quot;{gastoToDelete?.concepto}&quot;? 
+              ¿Está seguro de que desea eliminar el gasto "{gastoToDelete?.concepto}"?
               Esta acción no se puede deshacer.
             </DialogDescription>
           </DialogHeader>

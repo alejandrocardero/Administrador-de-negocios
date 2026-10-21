@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { Plus, Trash2, Receipt, Eye, Loader2 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Plus, Trash2, Receipt, Eye, Loader2, SearchX } from 'lucide-react';
+import { toast } from 'sonner';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -15,11 +16,14 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
+import {
+  PageHeader, EmptyState, SkeletonTable, usePagination, TablePagination
+} from '@/components/shared';
 import { useCompras, useCompradores, useProductos, formatCurrency, formatDate, toFechaLocal } from '@/hooks/supabase/useSupabaseData';
 import type { Compra, DetalleCompra, Comprador, Producto } from '@/types';
 
 export default function HacerCompras() {
-  const { data: compras, create: crearCompra, refetch: refetchCompras } = useCompras();
+  const { data: compras, loading, create: crearCompra, refetch: refetchCompras } = useCompras();
   const { data: compradores } = useCompradores();
   const { data: productos, update: actualizarProducto, create: crearProducto, refetch: refetchProductos } = useProductos();
 
@@ -29,6 +33,9 @@ export default function HacerCompras() {
     productos.filter(p => p.stock <= p.stockMinimo || p.stock <= 0),
     [productos]
   );
+
+  const comprasOrdenadas = useMemo(() => compras.slice().reverse(), [compras]);
+  const { pageItems, page, pageCount, setPage } = usePagination(comprasOrdenadas, 10);
 
   const [nuevaCompraOpen, setNuevaCompraOpen] = useState(false);
   const [compradorSearch, setCompradorSearch] = useState('');
@@ -214,6 +221,7 @@ export default function HacerCompras() {
       };
 
       await crearCompra(nuevaCompra);
+      toast.success('Compra registrada');
       await refetchCompras();
 
       for (const detalle of detalles) {
@@ -262,15 +270,27 @@ export default function HacerCompras() {
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Compras"
+        description="Registra las compras de productos para reponer inventario"
+        icon={Receipt}
+        actions={
+          <Button onClick={() => setNuevaCompraOpen(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            Nueva Compra
+          </Button>
+        }
+      />
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Compras Hoy</p>
+                <p className="text-sm text-muted-foreground">Compras Hoy</p>
                 <p className="text-2xl font-bold">{formatCurrency(totalComprasHoy)}</p>
               </div>
-              <Receipt className="w-8 h-8 text-blue-500" />
+              <Receipt className="w-8 h-8 text-primary shrink-0" />
             </div>
           </CardContent>
         </Card>
@@ -278,8 +298,8 @@ export default function HacerCompras() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-500">Productos por Reponer</p>
-                <p className="text-2xl font-bold text-red-600">{productosNecesarios.length}</p>
+                <p className="text-sm text-muted-foreground">Productos por Reponer</p>
+                <p className="text-2xl font-bold text-destructive">{productosNecesarios.length}</p>
               </div>
               <Badge variant="destructive">{productosNecesarios.length}</Badge>
             </div>
@@ -288,49 +308,54 @@ export default function HacerCompras() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Registrar Compra</CardTitle>
-          <Button onClick={() => setNuevaCompraOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Nueva Compra
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Comprador</TableHead>
-                  <TableHead>Total</TableHead>
-                  <TableHead>Método</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {compras.length === 0 ? (
+        <CardContent className="pt-6 space-y-4">
+          <h2 className="text-lg font-semibold">Historial de Compras</h2>
+
+          {loading ? (
+            <SkeletonTable rows={5} cols={5} />
+          ) : compras.length === 0 ? (
+            <EmptyState
+              icon={Receipt}
+              title="No hay compras registradas"
+              description="Registra tu primera compra para reponer el inventario."
+              action={
+                <Button onClick={() => setNuevaCompraOpen(true)}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Nueva Compra
+                </Button>
+              }
+            />
+          ) : (
+            <>
+              <Table className="[&_td]:py-3 [&_th]:py-3">
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center py-8 text-slate-500">
-                      No hay compras registradas
-                    </TableCell>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Comprador</TableHead>
+                    <TableHead>Total</TableHead>
+                    <TableHead>Método</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
-                ) : (
-                  compras.slice().reverse().map((compra) => (
+                </TableHeader>
+                <TableBody>
+                  {pageItems.map((compra) => (
                     <TableRow key={compra.id}>
                       <TableCell>{formatDate(compra.fecha)}</TableCell>
                       <TableCell>{compra.compradorNombre}</TableCell>
                       <TableCell className="font-medium">{formatCurrency(compra.total)}</TableCell>
                       <TableCell><span className="capitalize">{getMetodoPagoLabel(compra.metodoPago)}</span></TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={() => setSelectedCompra(compra)}>
+                        <Button variant="ghost" size="icon" onClick={() => setSelectedCompra(compra)} title="Ver detalles">
                           <Eye className="w-4 h-4" />
                         </Button>
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  ))}
+                </TableBody>
+              </Table>
+              <TablePagination page={page} pageCount={pageCount} setPage={setPage} />
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -361,7 +386,7 @@ export default function HacerCompras() {
                   onBlur={() => setCompradorSugOpen(false)}
                 />
                 {compradorSugOpen && filteredCompradores.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 max-h-40 overflow-y-auto bg-white border rounded-md shadow-lg">
+                  <div className="absolute z-10 w-full mt-1 max-h-40 overflow-y-auto bg-popover border border-border rounded-md shadow-lg">
                     {filteredCompradores.map(c => (
                       <button
                         key={c.id}
@@ -371,7 +396,7 @@ export default function HacerCompras() {
                           setCompradorSearch(c.nombre);
                           setCompradorSugOpen(false);
                         }}
-                        className="w-full px-3 py-2 text-left hover:bg-slate-100"
+                        className="w-full px-3 py-2 text-left hover:bg-accent"
                       >
                         {c.nombre}
                       </button>
@@ -380,7 +405,7 @@ export default function HacerCompras() {
                 )}
               </div>
               {selectedComprador && (
-                <p className="text-sm text-green-600">Seleccionado: {selectedComprador.nombre}</p>
+                <p className="text-sm text-success">Seleccionado: {selectedComprador.nombre}</p>
               )}
             </div>
 
@@ -400,13 +425,13 @@ export default function HacerCompras() {
                   onBlur={() => setProductoSugOpen(false)}
                 />
                 {productoSugOpen && (filteredProductos.length > 0 || (productoSearch.trim() !== '' && busquedaSinCoincidenciaExacta)) && (
-                  <div className="absolute z-10 w-full mt-1 max-h-40 overflow-y-auto bg-white border rounded-md shadow-lg">
+                  <div className="absolute z-10 w-full mt-1 max-h-40 overflow-y-auto bg-popover border border-border rounded-md shadow-lg">
                     {filteredProductos.map(p => (
                       <button
                         key={p.id}
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => handleAddProductoConCantidad(p, 1)}
-                        className="w-full px-3 py-2 text-left hover:bg-slate-100 flex justify-between"
+                        className="w-full px-3 py-2 text-left hover:bg-accent flex justify-between"
                       >
                         <span>{p.nombre} ({formatCurrency(p.precioCompra)})</span>
                         <Badge variant="secondary">{p.stock} {p.unidad}</Badge>
@@ -416,7 +441,7 @@ export default function HacerCompras() {
                       <button
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={handleAbrirNuevoProducto}
-                        className="w-full px-3 py-2 text-left hover:bg-blue-50 border-t flex items-center gap-2 text-blue-700 font-medium"
+                        className="w-full px-3 py-2 text-left hover:bg-primary/10 border-t border-border flex items-center gap-2 text-primary font-medium"
                       >
                         <Plus className="w-4 h-4 shrink-0" />
                         <span>Agregar "{productoSearch.trim()}" como producto nuevo (irá al inventario con etiqueta "Nuevo")</span>
@@ -430,9 +455,14 @@ export default function HacerCompras() {
             <div className="space-y-2">
               <Label>Detalles de la Compra</Label>
               {detalles.length === 0 ? (
-                <p className="text-slate-500 text-center py-4">No hay productos agregados</p>
+                <EmptyState
+                  icon={SearchX}
+                  title="No hay productos agregados"
+                  description="Busca un producto para agregarlo a la compra."
+                  className="py-6"
+                />
               ) : (
-                <Table>
+                <Table className="[&_td]:py-3 [&_th]:py-3">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Producto</TableHead>
@@ -467,7 +497,7 @@ export default function HacerCompras() {
                         </TableCell>
                         <TableCell className="text-right font-medium">{formatCurrency(detalle.subtotal)}</TableCell>
                         <TableCell>
-                          <Button variant="ghost" size="icon" onClick={() => handleRemoveDetalle(index)} className="text-red-500">
+                          <Button variant="ghost" size="icon" onClick={() => handleRemoveDetalle(index)} className="text-destructive hover:text-destructive/80">
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </TableCell>
@@ -499,7 +529,7 @@ export default function HacerCompras() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-4 border-t">
+            <div className="flex justify-end gap-2 pt-4 border-t border-border">
               <p className="text-lg font-bold self-center">Total: {formatCurrency(subtotal)}</p>
               <Button variant="outline" onClick={() => setNuevaCompraOpen(false)}>Cancelar</Button>
               <Button onClick={handleGuardarCompra} disabled={detalles.length === 0 || !selectedComprador || saving}>
@@ -517,7 +547,7 @@ export default function HacerCompras() {
           <DialogHeader>
             <DialogTitle>Agregar Producto Nuevo</DialogTitle>
             <DialogDescription>
-              Se creará en el inventario con la etiqueta <Badge className="bg-blue-600 text-white">Nuevo</Badge> y se agregará a esta compra.
+              Se creará en el inventario con la etiqueta <Badge className="bg-primary text-primary-foreground">Nuevo</Badge> y se agregará a esta compra.
             </DialogDescription>
           </DialogHeader>
 
@@ -612,12 +642,12 @@ export default function HacerCompras() {
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                <div><p className="text-slate-500">Fecha</p><p>{formatDate(selectedCompra.fecha)}</p></div>
-                <div><p className="text-slate-500">Comprador</p><p>{selectedCompra.compradorNombre}</p></div>
-                <div><p className="text-slate-500">Método</p><p className="capitalize">{getMetodoPagoLabel(selectedCompra.metodoPago)}</p></div>
-                <div><p className="text-slate-500">Estado</p><p>{selectedCompra.estado}</p></div>
+                <div><p className="text-muted-foreground">Fecha</p><p>{formatDate(selectedCompra.fecha)}</p></div>
+                <div><p className="text-muted-foreground">Comprador</p><p>{selectedCompra.compradorNombre}</p></div>
+                <div><p className="text-muted-foreground">Método</p><p className="capitalize">{getMetodoPagoLabel(selectedCompra.metodoPago)}</p></div>
+                <div><p className="text-muted-foreground">Estado</p><p>{selectedCompra.estado}</p></div>
               </div>
-              <Table>
+              <Table className="[&_td]:py-3 [&_th]:py-3">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Producto</TableHead>
@@ -640,7 +670,7 @@ export default function HacerCompras() {
               <div className="flex justify-end">
                 <p className="text-xl font-bold">Total: {formatCurrency(selectedCompra.total)}</p>
               </div>
-              {selectedCompra.notas && <p className="text-sm text-slate-500">Notas: {selectedCompra.notas}</p>}
+              {selectedCompra.notas && <p className="text-sm text-muted-foreground">Notas: {selectedCompra.notas}</p>}
             </div>
             <DialogFooter>
               <Button onClick={() => setSelectedCompra(null)}>Cerrar</Button>

@@ -1,10 +1,13 @@
 import { useState, useMemo } from 'react';
-import { Search } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { Users } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
+import {
+  PageHeader, SearchInput, EmptyState, SkeletonTable,
+  StatusBadge, usePagination, TablePagination
+} from '@/components/shared';
 import { useCompradores, formatDate } from '@/hooks/supabase/useSupabaseData';
 
 export default function VerCompradores() {
@@ -17,64 +20,65 @@ export default function VerCompradores() {
     return compradores.filter(c => c.nombre.toLowerCase().includes(q));
   }, [searchQuery, compradores]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
+  const { pageItems, page, pageCount, setPage, reset } = usePagination(filteredCompradores, 10);
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        title="Compradores"
+        description="Consulta el listado de compradores registrados"
+        icon={Users}
+      />
+
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Compradores</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col sm:flex-row gap-4 mb-4">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <Input
-                placeholder="Buscar compradores..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <SearchInput
+              value={searchQuery}
+              onChange={(v) => { setSearchQuery(v); reset(); }}
+              placeholder="Buscar compradores..."
+            />
           </div>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nombre</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead>Fecha Registro</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredCompradores.length === 0 ? (
+
+          {loading ? (
+            <SkeletonTable rows={5} cols={3} />
+          ) : filteredCompradores.length === 0 ? (
+            <EmptyState
+              icon={Users}
+              title={searchQuery ? 'Sin resultados' : 'No hay compradores'}
+              description={
+                searchQuery
+                  ? 'Ningún comprador coincide con tu búsqueda.'
+                  : 'Los compradores aparecerán aquí cuando se registren.'
+              }
+            />
+          ) : (
+            <>
+              <Table className="[&_td]:py-3 [&_th]:py-3">
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={3} className="text-center py-8 text-slate-500">
-                      No se encontraron compradores
-                    </TableCell>
+                    <TableHead>Nombre</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead>Fecha Registro</TableHead>
                   </TableRow>
-                ) : (
-                  filteredCompradores.map((comprador) => (
+                </TableHeader>
+                <TableBody>
+                  {pageItems.map((comprador) => (
                     <TableRow key={comprador.id}>
-                      <TableCell>{comprador.nombre}</TableCell>
+                      <TableCell className="font-medium">{comprador.nombre}</TableCell>
                       <TableCell>
-                        <span className={comprador.activo ? 'text-green-600' : 'text-red-600'}>
+                        <StatusBadge tone={comprador.activo ? 'success' : 'danger'}>
                           {comprador.activo ? 'Activo' : 'Inactivo'}
-                        </span>
+                        </StatusBadge>
                       </TableCell>
                       <TableCell>{formatDate(comprador.fechaRegistro)}</TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  ))}
+                </TableBody>
+              </Table>
+              <TablePagination page={page} pageCount={pageCount} setPage={setPage} />
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

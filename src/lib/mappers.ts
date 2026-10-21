@@ -15,6 +15,7 @@ import type {
   SalarioFijo,
   Fiado
 } from '@/types'
+import { toFechaLocal } from '@/lib/formatters'
 
 type OmitMeta<T> = Omit<T, 'business_id' | 'created_at' | 'updated_at'>
 
@@ -390,7 +391,7 @@ export function toFiado(r: Tables<'fiados'>): Fiado {
 
 export function fromFiado(f: Partial<Fiado>): OmitMeta<TablesInsert<'fiados'>> {
   return stripUndefined({
-    fecha: f.fecha,
+    fecha: f.fecha ? toFechaLocal(f.fecha) : undefined,
     cliente_nombre: f.clienteNombre,
     vendedor_id: f.vendedorId,
     vendedor_nombre: f.vendedorNombre,
@@ -398,7 +399,7 @@ export function fromFiado(f: Partial<Fiado>): OmitMeta<TablesInsert<'fiados'>> {
     descripcion: f.descripcion,
     notas: f.notas,
     estado: f.estado,
-    fecha_cobro: f.fechaCobro
+    fecha_cobro: f.fechaCobro ? toFechaLocal(f.fechaCobro) : undefined
   }) as OmitMeta<TablesInsert<'fiados'>>
 }
 
