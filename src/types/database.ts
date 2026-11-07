@@ -107,6 +107,9 @@ export interface Database {
           fecha_registro: string
           activo: boolean
           es_nuevo: boolean
+          tag_tipo: 'nuevo' | 'cambio_precio' | null
+          tag_expira_en: string | null
+          tag_origen_compra_id: string | null
           created_at: string
           updated_at: string
         }
@@ -126,6 +129,9 @@ export interface Database {
           fecha_registro?: string
           activo?: boolean
           es_nuevo?: boolean
+          tag_tipo?: 'nuevo' | 'cambio_precio' | null
+          tag_expira_en?: string | null
+          tag_origen_compra_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -145,6 +151,9 @@ export interface Database {
           fecha_registro?: string
           activo?: boolean
           es_nuevo?: boolean
+          tag_tipo?: 'nuevo' | 'cambio_precio' | null
+          tag_expira_en?: string | null
+          tag_origen_compra_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -424,6 +433,14 @@ export interface Database {
           regimen: string
           tarifa_iva: number
           moneda: string
+          salario_usar_formula: boolean
+          salario_formula: string | null
+          salario_base_fija: number | null
+          salario_comision_porcentaje: number | null
+          salario_meta_ventas: number | null
+          salario_bono_meta: number | null
+          salario_formula_descripcion: string | null
+          salario_roles_formula: string | null
           created_at: string
           updated_at: string
         }
@@ -437,6 +454,14 @@ export interface Database {
           regimen?: string
           tarifa_iva?: number
           moneda?: string
+          salario_usar_formula?: boolean
+          salario_formula?: string | null
+          salario_base_fija?: number | null
+          salario_comision_porcentaje?: number | null
+          salario_meta_ventas?: number | null
+          salario_bono_meta?: number | null
+          salario_formula_descripcion?: string | null
+          salario_roles_formula?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -450,6 +475,14 @@ export interface Database {
           regimen?: string
           tarifa_iva?: number
           moneda?: string
+          salario_usar_formula?: boolean
+          salario_formula?: string | null
+          salario_base_fija?: number | null
+          salario_comision_porcentaje?: number | null
+          salario_meta_ventas?: number | null
+          salario_bono_meta?: number | null
+          salario_formula_descripcion?: string | null
+          salario_roles_formula?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -724,6 +757,84 @@ export interface Database {
           updated_at?: string
         }
         Relationships: []
+      },
+      productos_pendientes_aprobacion: {
+        Row: {
+          id: string
+          business_id: string
+          comprador_id: string
+          comprador_nombre: string
+          nombre: string
+          categoria: 'aseo' | 'comida' | 'bebidas' | 'cerveza' | 'otros'
+          precio_compra: number
+          cantidad_inicial: number
+          unidad: string
+          notas: string | null
+          tipo: 'nuevo' | 'cambio_precio'
+          producto_existente_id: string | null
+          precio_compra_anterior: number | null
+          precio_venta: number | null
+          stock_minimo: number | null
+          porcentaje_ganancia: number | null
+          comentario_admin: string | null
+          estado: 'pendiente' | 'aprobado' | 'rechazado'
+          fecha_creacion: string
+          fecha_resolucion: string | null
+          resuelto_por: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          business_id: string
+          comprador_id: string
+          comprador_nombre: string
+          nombre: string
+          categoria: 'aseo' | 'comida' | 'bebidas' | 'cerveza' | 'otros'
+          precio_compra: number
+          cantidad_inicial: number
+          unidad: string
+          notas?: string | null
+          tipo: 'nuevo' | 'cambio_precio'
+          producto_existente_id?: string | null
+          precio_compra_anterior?: number | null
+          precio_venta?: number | null
+          stock_minimo?: number | null
+          porcentaje_ganancia?: number | null
+          comentario_admin?: string | null
+          estado?: 'pendiente' | 'aprobado' | 'rechazado'
+          fecha_creacion?: string
+          fecha_resolucion?: string | null
+          resuelto_por?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          business_id?: string
+          comprador_id?: string
+          comprador_nombre?: string
+          nombre?: string
+          categoria?: 'aseo' | 'comida' | 'bebidas' | 'cerveza' | 'otros'
+          precio_compra?: number
+          cantidad_inicial?: number
+          unidad?: string
+          notas?: string | null
+          tipo?: 'nuevo' | 'cambio_precio'
+          producto_existente_id?: string | null
+          precio_compra_anterior?: number | null
+          precio_venta?: number | null
+          stock_minimo?: number | null
+          porcentaje_ganancia?: number | null
+          comentario_admin?: string | null
+          estado?: 'pendiente' | 'aprobado' | 'rechazado'
+          fecha_creacion?: string
+          fecha_resolucion?: string | null
+          resuelto_por?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
     }
     Views: {
@@ -777,6 +888,50 @@ export interface Database {
       }
       update_updated_at_column: {
         Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
+      limpiar_tags_expirados: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      limpiar_tag_si_corresponde: {
+        Args: {
+          p_producto_id: string
+          p_nueva_entrada?: number
+          p_nuevo_stock?: number
+        }
+        Returns: undefined
+      }
+      crear_solicitud_producto: {
+        Args: {
+          p_comprador_id: string
+          p_nombre: string
+          p_categoria: 'aseo' | 'comida' | 'bebidas' | 'cerveza' | 'otros'
+          p_precio_compra: number
+          p_cantidad_inicial: number
+          p_unidad: string
+          p_tipo: 'nuevo' | 'cambio_precio'
+          p_producto_existente_id?: string
+          p_precio_compra_anterior?: number
+          p_notas?: string
+        }
+        Returns: Database['public']['Tables']['productos_pendientes_aprobacion']['Row']
+      }
+      aprobar_solicitud_producto: {
+        Args: {
+          p_solicitud_id: string
+          p_precio_venta: number
+          p_stock_minimo: number
+          p_porcentaje_ganancia: number
+          p_comentario_admin?: string
+        }
+        Returns: Database['public']['Tables']['productos']['Row']
+      }
+      rechazar_solicitud_producto: {
+        Args: {
+          p_solicitud_id: string
+          p_comentario_admin?: string
+        }
         Returns: undefined
       }
     }

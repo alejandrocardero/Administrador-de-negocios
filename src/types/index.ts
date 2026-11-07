@@ -77,11 +77,14 @@ export interface AuthUser {
 
 export type CategoriaProducto = 'aseo' | 'comida' | 'bebidas' | 'cerveza' | 'otros';
 
+export type ProductoTagTipo = 'nuevo' | 'cambio_precio';
+
 export interface Vendedor {
   id: string;
   nombre: string;
   activo: boolean;
   fechaRegistro: string;
+  rol?: 'jefe' | 'admin' | 'comprador' | 'vendedor';
 }
 
 export interface Comprador {
@@ -120,6 +123,12 @@ export interface Producto {
   activo: boolean;
   /** true si el producto fue creado desde Compras sin existir en el inventario */
   esNuevo?: boolean;
+  /** Tipo de etiqueta temporal en inventario */
+  tagTipo?: ProductoTagTipo;
+  /** Fecha de expiración de la etiqueta (ISO string) */
+  tagExpiraEn?: string;
+  /** ID de la compra que originó la etiqueta */
+  tagOrigenCompraId?: string;
 }
 
 export interface DetalleCompra {
@@ -174,6 +183,14 @@ export interface ConfiguracionNegocio {
   regimen: 'simplificado' | 'comun';
   tarifaIva: number;
   moneda: string;
+  // Salary formula configuration
+  salarioUsarFormula?: boolean;
+  salarioFormula?: string;
+  salarioBaseFija?: number;
+  salarioComisionPorcentaje?: number;
+  salarioMetaVentas?: number;
+  salarioBonoMeta?: number;
+  salarioFormulaDescripcion?: string;
 }
 
 export interface MovimientoCaja {
@@ -245,6 +262,32 @@ export interface SolicitudProductoNuevo {
   stockMinimo?: number;
   productoId?: string;
   comentarioAdmin?: string;
+}
+
+export type SolicitudProductoTipo = 'nuevo' | 'cambio_precio';
+
+export interface ProductoPendienteAprobacion {
+  id: string;
+  businessId: string;
+  compradorId: string;
+  compradorNombre: string;
+  nombre: string;
+  categoria: CategoriaProducto;
+  precioCompra: number;
+  cantidadInicial: number;
+  unidad: string;
+  notas?: string;
+  tipo: SolicitudProductoTipo;
+  productoExistenteId?: string;
+  precioCompraAnterior?: number;
+  precioVenta?: number;
+  stockMinimo?: number;
+  porcentajeGanancia?: number;
+  comentarioAdmin?: string;
+  estado: 'pendiente' | 'aprobado' | 'rechazado';
+  fechaCreacion: string;
+  fechaResolucion?: string;
+  resueltoPor?: string;
 }
 
 export interface SalarioFijo {

@@ -2,6 +2,8 @@ import { LogOut, PanelLeft, PanelLeftClose } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { UserAvatar } from '@/components/BusinessSelector';
 import SyncIndicator from '@/components/SyncIndicator';
+import { LanguageSelector } from '@/components/shared';
+import { useTranslation } from 'react-i18next';
 
 interface AppHeaderProps {
   title: string;
@@ -10,8 +12,10 @@ interface AppHeaderProps {
   onLogout: () => void;
 }
 
-/** Barra superior con tokens semánticos: toggle del sidebar, título, avatar y sync. */
+/** Barra superior con tokens semánticos: toggle del sidebar, título, avatar, idioma y sync. */
 export function AppHeader({ title, collapsed, onToggleCollapsed, onLogout }: AppHeaderProps) {
+  const { t } = useTranslation();
+
   return (
     <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-3 sm:h-16 sm:px-4 lg:px-6">
       <div className="flex min-w-0 items-center gap-1 sm:gap-2">
@@ -31,21 +35,22 @@ export function AppHeader({ title, collapsed, onToggleCollapsed, onLogout }: App
 
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
         <span className="hidden text-xs capitalize text-muted-foreground md:block lg:text-sm">
-          {new Date().toLocaleDateString('es-CO', {
+          {new Date().toLocaleDateString(t('common.language') === 'en' ? 'en-US' : 'es-CO', {
             weekday: 'short',
             year: 'numeric',
             month: 'short',
             day: 'numeric',
           })}
         </span>
+        <LanguageSelector />
         <UserAvatar />
         <SyncIndicator />
         <Button
           variant="ghost"
           size="icon"
           onClick={onLogout}
-          title="Cerrar sesión"
-          aria-label="Cerrar sesión"
+          title={t('common.logout')}
+          aria-label={t('common.logout')}
           className="size-8 text-muted-foreground hover:text-foreground sm:size-9"
         >
           <LogOut aria-hidden className="h-4 w-4 sm:h-5 sm:w-5" />

@@ -12,6 +12,7 @@ import type {
   RegistroIPVE,
   Pedido,
   SolicitudProductoNuevo,
+  ProductoPendienteAprobacion,
   SalarioFijo,
   Fiado
 } from '@/types'
@@ -40,7 +41,10 @@ export function toProducto(r: Tables<'productos'>): Producto {
     unidad: r.unidad,
     fechaRegistro: r.fecha_registro,
     activo: r.activo,
-    esNuevo: r.es_nuevo ?? false
+    esNuevo: r.es_nuevo ?? false,
+    tagTipo: r.tag_tipo ?? undefined,
+    tagExpiraEn: r.tag_expira_en ?? undefined,
+    tagOrigenCompraId: r.tag_origen_compra_id ?? undefined
   }
 }
 
@@ -66,7 +70,7 @@ export function fromProducto(p: Partial<Producto>): OmitMeta<TablesInsert<'produ
 // VENDEDORES / COMPRADORES
 // ---------------------------------------------
 export function toVendedor(r: Tables<'vendedores'>): Vendedor {
-  return { id: r.id, nombre: r.nombre, activo: r.activo, fechaRegistro: r.fecha_registro }
+  return { id: r.id, nombre: r.nombre, activo: r.activo, fechaRegistro: r.fecha_registro, rol: (r as any).rol ?? 'vendedor' }
 }
 
 export function fromVendedor(v: Partial<Vendedor>): OmitMeta<TablesInsert<'vendedores'>> {
@@ -299,6 +303,57 @@ export function fromSolicitud(input: Partial<SolicitudProductoNuevo>): OmitMeta<
     producto_id: input.productoId,
     comentario_admin: input.comentarioAdmin
   }) as OmitMeta<TablesInsert<'solicitudes_producto_nuevo'>>
+}
+
+// ---------------------------------------------
+// PRODUCTOS PENDIENTES APROBACIÓN
+// ---------------------------------------------
+export function toProductoPendienteAprobacion(r: Tables<'productos_pendientes_aprobacion'>): ProductoPendienteAprobacion {
+  return {
+    id: r.id,
+    businessId: r.business_id,
+    compradorId: r.comprador_id,
+    compradorNombre: r.comprador_nombre,
+    nombre: r.nombre,
+    categoria: r.categoria,
+    precioCompra: r.precio_compra,
+    cantidadInicial: r.cantidad_inicial,
+    unidad: r.unidad,
+    notas: r.notas ?? undefined,
+    tipo: r.tipo,
+    productoExistenteId: r.producto_existente_id ?? undefined,
+    precioCompraAnterior: r.precio_compra_anterior ?? undefined,
+    precioVenta: r.precio_venta ?? undefined,
+    stockMinimo: r.stock_minimo ?? undefined,
+    porcentajeGanancia: r.porcentaje_ganancia ?? undefined,
+    comentarioAdmin: r.comentario_admin ?? undefined,
+    estado: r.estado,
+    fechaCreacion: r.fecha_creacion,
+    fechaResolucion: r.fecha_resolucion ?? undefined,
+    resueltoPor: r.resuelto_por ?? undefined
+  }
+}
+
+export function fromProductoPendienteAprobacion(input: Partial<ProductoPendienteAprobacion>): OmitMeta<TablesInsert<'productos_pendientes_aprobacion'>> {
+  return stripUndefined({
+    business_id: input.businessId,
+    comprador_id: input.compradorId,
+    comprador_nombre: input.compradorNombre,
+    nombre: input.nombre,
+    categoria: input.categoria,
+    precio_compra: input.precioCompra,
+    cantidad_inicial: input.cantidadInicial,
+    unidad: input.unidad,
+    notas: input.notas,
+    tipo: input.tipo,
+    producto_existente_id: input.productoExistenteId,
+    precio_compra_anterior: input.precioCompraAnterior,
+    precio_venta: input.precioVenta,
+    stock_minimo: input.stockMinimo,
+    porcentaje_ganancia: input.porcentajeGanancia,
+    comentario_admin: input.comentarioAdmin,
+    estado: input.estado
+  }) as OmitMeta<TablesInsert<'productos_pendientes_aprobacion'>>
 }
 
 // ---------------------------------------------

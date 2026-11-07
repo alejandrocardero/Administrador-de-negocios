@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   CalendarIcon, Edit, Trash, MoreHorizontal, User, DollarSign, FileSpreadsheet, Banknote, HandCoins, Loader2, Receipt, SearchX
 } from 'lucide-react';
@@ -214,13 +214,13 @@ export default function Ventas() {
 
   // Importe IPVE (tipo historico) del vendedor para una fecha local dada.
   // null = sin IPVE registrado ese día (no hay con qué comparar el cierre).
-  const ipveImporteDelDia = (vendedorId: string, fechaLocal: string): number | null => {
+  const ipveImporteDelDia = useCallback((vendedorId: string, fechaLocal: string): number | null => {
     const regs = registrosIpve.filter(r =>
       r.fecha === fechaLocal && r.vendedorId === vendedorId && r.tipo === 'historico'
     );
     if (regs.length === 0) return null;
     return regs.reduce((sum, r) => sum + (r.inicio + r.entrada - r.final) * r.precioVenta, 0);
-  };
+  }, [registrosIpve]);
 
   const [editingVenta, setEditingVenta] = useState<VentaDiaria | null>(null);
   const [deleteVenta, setDeleteVenta] = useState<VentaDiaria | null>(null);
@@ -255,6 +255,8 @@ export default function Ventas() {
     setFiadoDialogOpen(true);
   };
 
+  const [postVentaIpve, setPostVentaIpve] = useState<{ vendedorId: string; vendedorNombre: string; fecha: string; ventaId: string; totalVenta: number } | null>(null);
+
   const handleConfirmVenta = async () => {
     if (savingRef.current) return;
     savingRef.current = true;
@@ -266,24 +268,54 @@ export default function Ventas() {
 
       // Fecha local (Bug 5) + sobrante/faltante vs IPVE del vendedor (Bugs 2 y 4)
       const fechaLocal = toFechaLocal(confirmVenta.fecha);
+      
+      // Verificar si ya existe una venta para este vendedor en esta fecha
+      const ventaExistente = ventas.find(v => 
+        v.vendedorId === confirmVenta.vendedorId && v.fecha === fechaLocal
+      );
+      
+      if (ventaExistente) {
+        toast.error(`Ya existe un cierre de ventas para ${vendedor.nombre} el ${formatDate(fechaLocal)}. Puede editarlo desde el historial.`);
+        return;
+      }
+
       const ipve = ipveImporteDelDia(confirmVenta.vendedorId, fechaLocal);
       const diferenciaCaja = ipve === null
         ? null
         : (confirmVenta.montoEfectivo + confirmVenta.montoTransferencia) - ipve;
 
-      await agregarVentaDiaria({
+      const nuevaVenta = await agregarVentaDiaria({
         ...confirmVenta,
         fecha: fechaLocal,
         vendedorNombre: vendedor.nombre,
         diferenciaCaja,
       });
-      toast.success('Venta registrada');
-      setContadorConfirmado(null);
-      setContadorBilletes({});
+      
+      if (nuevaVenta) {
+        toast.success('Venta registrada');
+        setContadorConfirmado(null);
+        setContadorBilletes({});
+        
+        // Abrir IPVE automáticamente para este vendedor/fecha
+        setPostVentaIpve({
+          vendedorId: confirmVenta.vendedorId,
+          vendedorNombre: vendedor.nombre,
+          fecha: fechaLocal,
+          ventaId: nuevaVenta.id,
+          totalVenta: confirmVenta.montoEfectivo + confirmVenta.montoTransferencia
+        });
+      }
+      
       setConfirmVenta(null);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error guardando venta:', error);
-      toast.error('Error al guardar la venta');
+      
+      // Manejar error de constraint único de base de datos (por si acaso)
+      if (error && typeof error === 'object' && 'code' in error && error.code === '23505') {
+        toast.error('Ya existe un cierre de ventas para este vendedor en esta fecha.');
+      } else {
+        toast.error('Error al guardar la venta. Intente nuevamente.');
+      }
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -346,7 +378,7 @@ export default function Ventas() {
     if (ipve === null) return { ipve: null, diferencia: null };
     const diferencia = (confirmVenta.montoEfectivo + confirmVenta.montoTransferencia) - ipve;
     return { ipve, diferencia };
-  }, [confirmVenta, registrosIpve]);
+  }, [confirmVenta, ipveImporteDelDia]);
 
   const totalSalariosHoy = useMemo(() => {
     const hoy = new Date().toDateString();
@@ -661,6 +693,41 @@ export default function Ventas() {
         open={fiadoDialogOpen}
         onOpenChange={setFiadoDialogOpen}
         onSave={agregarFiado}
+      />
+
+      {/* Post-Venta IPVE Dialog - se abre automáticamente después de registrar la venta */}
+      <IPVE
+        open={!!postVentaIpve}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPostVentaIpve(null);
+          }
+        }}
+        modoDiario={true}
+        user={user || undefined}
+        totalCierre={postVentaIpve?.totalVenta}
+        ventasHoy={ventasHoy}
+        onSaveComplete={(result) => {
+          // result: { tipo: 'sobrante' | 'faltante' | 'ok', diferencia: number, ipveImporte: number }
+          if (postVentaIpve && result) {
+            actualizarVentaDiaria(postVentaIpve.ventaId, {
+              notas: (result.tipo === 'ok' ? '✅ IPVE cuadra perfectamente' : 
+                      result.tipo === 'sobrante' ? `⚠️ Sobrante: ${formatCurrency(result.diferencia)}` : 
+                      `⚠️ Faltante: ${formatCurrency(Math.abs(result.diferencia))}`) + 
+                     `\nIPVE: ${formatCurrency(result.ipveImporte)} | Venta: ${formatCurrency(postVentaIpve.totalVenta)}` +
+                     (ventas.find(v => v.id === postVentaIpve?.ventaId)?.notas ? `\n---\n${ventas.find(v => v.id === postVentaIpve?.ventaId)?.notas}` : ''),
+            });
+            
+            if (result.tipo === 'ok') {
+              toast.success('¡Perfecto! IPVE cuadra con la venta registrada');
+            } else if (result.tipo === 'sobrante') {
+              toast.warning(`Sobrante detectado: ${formatCurrency(result.diferencia)}`);
+            } else {
+              toast.error(`Faltante detectado: ${formatCurrency(Math.abs(result.diferencia))}`);
+            }
+          }
+          setPostVentaIpve(null);
+        }}
       />
     </div>
   );

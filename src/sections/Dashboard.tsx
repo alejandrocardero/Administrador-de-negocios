@@ -4,7 +4,7 @@ import {
   ShoppingCart, AlertTriangle, Receipt, Wallet, Users, LayoutDashboard
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { PageHeader, SkeletonCards } from '@/components/shared';
+import { PageHeader, SkeletonCards, ScrollReveal } from '@/components/shared';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
@@ -233,115 +233,125 @@ export default function Dashboard({
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Dashboard"
-        description="Resumen general del negocio en tiempo real"
-        icon={LayoutDashboard}
-      />
+      <ScrollReveal direction="up" delay={0} duration={500}>
+        <PageHeader
+          title="Dashboard"
+          description="Resumen general del negocio en tiempo real"
+          icon={LayoutDashboard}
+        />
+      </ScrollReveal>
 
-      {/* KPIs */}
-      {cargando ? (
-        <SkeletonCards count={4} />
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <KPICard
-            title="Ventas Hoy"
-            value={formatCurrency(stats.ventasHoy)}
-            subtitle="Total del día"
-            icon={ShoppingCart}
-            color="blue"
-            onClick={() => onSectionChange({ id: 'reportes', params: { reporteTipo: 'ventas', fechaInicio: hoyISO, fechaFin: hoyISO } })}
-          />
-          <KPICard
-            title="Ventas del Mes"
-            value={formatCurrency(stats.ventasMes)}
-            subtitle="Este mes"
-            icon={TrendingUp}
-            color="green"
-            onClick={() => onSectionChange({ id: 'reportes', params: { reporteTipo: 'ventas', fechaInicio: inicioMesISO, fechaFin: finMesISO } })}
-          />
-          <KPICard
-            title="Utilidad del Mes"
-            value={formatCurrency(stats.utilidadMes)}
-            subtitle="Ventas - Compras - Gastos"
-            icon={DollarSign}
-            color="purple"
-            onClick={() => onSectionChange({ id: 'reportes', params: { reporteTipo: 'utilidad', fechaInicio: inicioMesISO, fechaFin: finMesISO } })}
-          />
-          <KPICard
-            title="Balance de Caja"
-            value={formatCurrency(stats.balanceCaja)}
-            subtitle="Disponible"
-            icon={Wallet}
-            color="yellow"
-          />
-        </div>
-      )}
+      {/* KPIs - Primera fila */}
+      <ScrollReveal direction="up" delay={100} duration={500}>
+        {cargando ? (
+          <SkeletonCards count={4} />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <KPICard
+              title="Ventas Hoy"
+              value={formatCurrency(stats.ventasHoy)}
+              subtitle="Total del día"
+              icon={ShoppingCart}
+              color="blue"
+              onClick={() => onSectionChange({ id: 'reportes', params: { reporteTipo: 'ventas', fechaInicio: hoyISO, fechaFin: hoyISO } })}
+            />
+            <KPICard
+              title="Ventas del Mes"
+              value={formatCurrency(stats.ventasMes)}
+              subtitle="Este mes"
+              icon={TrendingUp}
+              color="green"
+              onClick={() => onSectionChange({ id: 'reportes', params: { reporteTipo: 'ventas', fechaInicio: inicioMesISO, fechaFin: finMesISO } })}
+            />
+            <KPICard
+              title="Utilidad del Mes"
+              value={formatCurrency(stats.utilidadMes)}
+              subtitle="Ventas - Compras - Gastos"
+              icon={DollarSign}
+              color="purple"
+              onClick={() => onSectionChange({ id: 'reportes', params: { reporteTipo: 'utilidad', fechaInicio: inicioMesISO, fechaFin: finMesISO } })}
+            />
+            <KPICard
+              title="Balance de Caja"
+              value={formatCurrency(stats.balanceCaja)}
+              subtitle="Disponible"
+              icon={Wallet}
+              color="yellow"
+            />
+          </div>
+        )}
+      </ScrollReveal>
 
       {/* Segunda fila de KPIs */}
-      {cargando ? (
-        <SkeletonCards count={4} />
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <KPICard
-            title="Productos Bajo Stock"
-            value={stats.productosBajoStock.toString()}
-            subtitle="Requieren atención"
-            icon={Package}
-            color="red"
-            onClick={() => onSectionChange({ id: 'inventario' })}
-          />
-          <KPICard
-            title="Salarios del Mes"
-            value={formatCurrency(stats.salariosMes)}
-            subtitle="Total salarios calculados"
-            icon={Users}
-            color="blue"
-            onClick={() => onSectionChange({ id: 'vendedores' })}
-          />
-          <KPICard
-            title="Compras del Mes"
-            value={formatCurrency(stats.comprasMes)}
-            subtitle="Total compras"
-            icon={Receipt}
-            color="yellow"
-            onClick={() => onSectionChange({ id: 'reportes', params: { reporteTipo: 'compras', fechaInicio: inicioMesISO, fechaFin: finMesISO } })}
-          />
-          <KPICard
-            title="Impuestos Pendientes"
-            value={impuestos.filter(i => i.estado === 'pendiente' || i.estado === 'vencido').length.toString()}
-            subtitle="Por pagar"
-            icon={Receipt}
-            color="red"
-            onClick={() => onSectionChange({ id: 'impuestos' })}
-          />
-        </div>
-      )}
+      <ScrollReveal direction="up" delay={200} duration={500}>
+        {cargando ? (
+          <SkeletonCards count={4} />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <KPICard
+              title="Productos Bajo Stock"
+              value={stats.productosBajoStock.toString()}
+              subtitle="Requieren atención"
+              icon={Package}
+              color="red"
+              onClick={() => onSectionChange({ id: 'inventario' })}
+            />
+            <KPICard
+              title="Salarios del Mes"
+              value={formatCurrency(stats.salariosMes)}
+              subtitle="Total salarios calculados"
+              icon={Users}
+              color="blue"
+              onClick={() => onSectionChange({ id: 'vendedores' })}
+            />
+            <KPICard
+              title="Compras del Mes"
+              value={formatCurrency(stats.comprasMes)}
+              subtitle="Total compras"
+              icon={Receipt}
+              color="yellow"
+              onClick={() => onSectionChange({ id: 'reportes', params: { reporteTipo: 'compras', fechaInicio: inicioMesISO, fechaFin: finMesISO } })}
+            />
+            <KPICard
+              title="Impuestos Pendientes"
+              value={impuestos.filter(i => i.estado === 'pendiente' || i.estado === 'vencido').length.toString()}
+              subtitle="Por pagar"
+              icon={Receipt}
+              color="red"
+              onClick={() => onSectionChange({ id: 'impuestos' })}
+            />
+          </div>
+        )}
+      </ScrollReveal>
 
       {/* Gráficos */}
-      <div className="grid grid-cols-1 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Ventas de los Últimos 7 Días</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={ventasPorDia}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="dia" />
-                  <YAxis tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} {...CHART_TOOLTIP} />
-                  <Bar dataKey="ventas" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <ScrollReveal direction="up" delay={300} duration={500}>
+        <div className="grid grid-cols-1 gap-6">
+          <Card className="card-interactive">
+            <CardHeader>
+              <CardTitle className="text-lg">Ventas de los Últimos 7 Días</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={ventasPorDia}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="dia" />
+                    <YAxis tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`} />
+                    <Tooltip formatter={(value: number) => formatCurrency(value)} {...CHART_TOOLTIP} />
+                    <Bar dataKey="ventas" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </ScrollReveal>
 
       {/* Alertas */}
-      <AlertasPanel alertas={alertas} />
+      <ScrollReveal direction="up" delay={400} duration={500}>
+        <AlertasPanel alertas={alertas} />
+      </ScrollReveal>
     </div>
   );
 }

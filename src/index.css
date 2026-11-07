@@ -112,3 +112,126 @@
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* ==========================================================================
+   MICROINTERACCIONES Y ANIMACIONES GLOBALES
+   ========================================================================== */
+
+/* Focus visible consistente para todos los elementos interactivos */
+@layer utilities {
+  .focus-ring {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+/* Transiciones base suaves */
+@layer base {
+  * {
+    @apply transition-colors duration-150 ease-out;
+  }
+}
+
+/* Hover en cards: elevación sutil */
+@layer components {
+  .card-interactive {
+    @apply transition-all duration-200 ease-out hover:shadow-lg hover:-translate-y-0.5;
+  }
+
+  .card-interactive:active {
+    @apply scale-[0.99] shadow-sm;
+  }
+}
+
+/* Botones: ripple effect sutil + active scale */
+@layer components {
+  .btn-ripple {
+    @apply relative overflow-hidden;
+  }
+
+  .btn-ripple::before {
+    content: '';
+    @apply absolute inset-0 bg-white/20 opacity-0 transition-opacity duration-150;
+  }
+
+  .btn-ripple:active::before {
+    @apply opacity-100 transition-none;
+  }
+
+  .btn-ripple:focus-visible {
+    @apply ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+/* Active scale para botones */
+@layer components {
+  .active-scale {
+    @apply active:scale-[0.98] transition-transform duration-75;
+  }
+}
+
+/* Inputs: focus suave */
+@layer components {
+  .input-focus {
+    @apply transition-all duration-150 ease-out;
+  }
+
+  .input-focus:focus {
+    @apply ring-2 ring-ring ring-offset-0 border-ring shadow-sm;
+  }
+}
+
+/* Tablas: hover rows suave */
+@layer components {
+  .table-row-hover {
+    @apply transition-colors duration-100 hover:bg-muted/50;
+  }
+}
+
+/* Tooltip fade in/out */
+@layer components {
+  .tooltip-fade {
+    @apply animate-in fade-in-0 zoom-in-95 duration-150 ease-out;
+  }
+}
+
+/* Badge pulse para estados vivos */
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 2s ease-in-out infinite;
+}
+
+/* Stagger animation delays utilitarios */
+@layer utilities {
+  .stagger-1 { animation-delay: 50ms; }
+  .stagger-2 { animation-delay: 100ms; }
+  .stagger-3 { animation-delay: 150ms; }
+  .stagger-4 { animation-delay: 200ms; }
+  .stagger-5 { animation-delay: 250ms; }
+  .stagger-6 { animation-delay: 300ms; }
+}
+
+/* Animación de entrada para modales/dialogs */
+@keyframes slide-up-fade {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-up-fade {
+  animation: slide-up-fade 200ms ease-out forwards;
+}
+
+/* Respetar prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

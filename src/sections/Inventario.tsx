@@ -58,7 +58,7 @@ export default function Inventario() {
   } = useProductRotation();
 
   const { user } = useAuth();
-  const esJefe = user?.role === 'jefe';
+  const esJefeOAdmin = user?.role === 'jefe' || user?.role === 'admin';
 
   const [searchQuery, setSearchQuery] = useState('');
   const [categoriaFilter, setCategoriaFilter] = useState<string>('todas');
@@ -366,7 +366,7 @@ export default function Inventario() {
   };
 
   const tableLoading = loading || (viewMode === 'rotacion' && rotationLoading);
-  const skeletonCols = viewMode === 'rotacion' ? 9 : (esJefe ? 9 : 8);
+  const skeletonCols = viewMode === 'rotacion' ? 9 : (esJefeOAdmin ? 9 : 8);
 
   return (
     <div className="space-y-6">
@@ -538,7 +538,7 @@ export default function Inventario() {
                       <>
                         <TableHead className="text-right">P. Compra</TableHead>
                         <TableHead className="text-right">P. Venta</TableHead>
-                        {esJefe && <TableHead className="text-right">% Ganancia</TableHead>}
+                        {esJefeOAdmin && <TableHead className="text-right">% Ganancia</TableHead>}
                         <TableHead className="text-right">Stock</TableHead>
                         <TableHead>Estado</TableHead>
                       </>
@@ -565,7 +565,7 @@ export default function Inventario() {
                         <>
                           <TableCell className="py-3 text-right">{formatCurrency(producto.precioCompra)}</TableCell>
                           <TableCell className="py-3 text-right">{formatCurrency(producto.precioVenta)}</TableCell>
-                          {esJefe && (
+                          {esJefeOAdmin && (
                             <TableCell className="py-3 text-right">
                               {getGananciaBadge(producto.precioVenta, producto.precioCompra)}
                             </TableCell>

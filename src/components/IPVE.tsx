@@ -26,6 +26,7 @@ interface IPVEProps {
   modoDiario?: boolean;
   totalCierre?: number; // total desde el registro de cierre de ventas
   ventasHoy?: VentaDiaria[]; // ventas del día, para comparar el cierre por vendedor
+  onSaveComplete?: (result: { tipo: 'sobrante' | 'faltante' | 'ok'; diferencia: number; ipveImporte: number }) => void;
 }
 
 interface ProductoIPVE extends Producto {
@@ -34,7 +35,7 @@ interface ProductoIPVE extends Producto {
   final: number;
 }
 
-export default function IPVE({ open, onOpenChange, user, modoDiario = false, totalCierre, ventasHoy }: IPVEProps) {
+export default function IPVE({ open, onOpenChange, user, modoDiario = false, totalCierre, ventasHoy, onSaveComplete }: IPVEProps) {
   const { vendedores, getVendedorByNombre } = useVendedores();
   const { productos } = useProductos();
   const { getRegistrosDiariosByFecha, getRegistrosByFecha, getRegistrosHistoricosByFecha, agregarOActualizarRegistro } = useRegistrosIPVE();
@@ -285,6 +286,25 @@ const handleConfirmarGuardarConVendedor = async () => {
     setSaved(true);
     // Validar importe IPVE contra registro de cierre
     validarCierre();
+    
+    // Determinar resultado de la comparación
+    let resultado: { tipo: 'sobrante' | 'faltante' | 'ok'; diferencia: number; ipveImporte: number } | null = null;
+    if (cierreComparacion !== undefined) {
+      const diferencia = Math.round((totales.importe - cierreComparacion) * 100) / 100;
+      if (diferencia > 0) {
+        resultado = { tipo: 'sobrante', diferencia, ipveImporte: totales.importe };
+      } else if (diferencia < 0) {
+        resultado = { tipo: 'faltante', diferencia, ipveImporte: totales.importe };
+      } else {
+        resultado = { tipo: 'ok', diferencia: 0, ipveImporte: totales.importe };
+      }
+    }
+    
+    // Llamar callback si existe (flujo post-venta)
+    if (onSaveComplete && resultado) {
+      onSaveComplete(resultado);
+    }
+    
     toast.success('Día guardado completamente');
     
     // Abrir diálogo de reposición si hay productos que la necesitan

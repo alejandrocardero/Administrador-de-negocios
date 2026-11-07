@@ -1,36 +1,40 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense, lazy } from 'react';
 import { Loader2 } from 'lucide-react';
 import type { Section } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useBusiness } from '@/contexts/BusinessContext';
 
-import Dashboard from '@/sections/Dashboard';
-import Inventario from '@/sections/Inventario';
-import Ventas from '@/sections/Ventas';
-import Vendedores from '@/sections/Vendedores';
-import Compradores from '@/sections/Compradores';
-import Compras from '@/sections/Compras';
-import Gastos from '@/sections/Gastos';
-import Impuestos from '@/sections/Impuestos';
-import ConflictResolver from '@/components/ConflictResolver';
-import Reportes from '@/sections/Reportes';
-import Configuracion from '@/sections/Configuracion';
-import Pedidos from '@/sections/Pedidos';
-import VerCompradores from '@/sections/VerCompradores';
-import AlertaStock from '@/sections/AlertaStock';
-import HacerCompras from '@/sections/HacerCompras';
-import AprobarProductos from '@/sections/AprobarProductos';
-import Salarios from '@/sections/Salarios';
-import ReporteVentaDiaria from '@/sections/ReporteVentaDiaria';
-import Fiados from '@/sections/Fiados';
-import AvisoFiados from '@/components/AvisoFiados';
-import AvisoPedidos from '@/components/AvisoPedidos';
-import AvisoSolicitudes from '@/components/AvisoSolicitudes';
-
-import { BusinessLanding, OnboardingDialog } from '@/components/auth/BusinessLanding';
 import { AppSidebar, MobileSidebar } from '@/components/layout/AppSidebar';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { getNavForRole } from '@/components/layout/nav-config';
+import { ScrollToTop } from '@/components/shared';
+
+import ConflictResolver from '@/components/ConflictResolver';
+import AvisoFiados from '@/components/AvisoFiados';
+import AvisoPedidos from '@/components/AvisoPedidos';
+import AvisoSolicitudes from '@/components/AvisoSolicitudes';
+import { BusinessLanding, OnboardingDialog } from '@/components/auth/BusinessLanding';
+import { SkeletonCards } from '@/components/shared';
+
+// Lazy load de secciones pesadas
+const Dashboard = lazy(() => import('@/sections/Dashboard'));
+const Inventario = lazy(() => import('@/sections/Inventario'));
+const Ventas = lazy(() => import('@/sections/Ventas'));
+const Vendedores = lazy(() => import('@/sections/Vendedores'));
+const Compradores = lazy(() => import('@/sections/Compradores'));
+const Compras = lazy(() => import('@/sections/Compras'));
+const Gastos = lazy(() => import('@/sections/Gastos'));
+const Impuestos = lazy(() => import('@/sections/Impuestos'));
+const Reportes = lazy(() => import('@/sections/Reportes'));
+const Configuracion = lazy(() => import('@/sections/Configuracion'));
+const Pedidos = lazy(() => import('@/sections/Pedidos'));
+const VerCompradores = lazy(() => import('@/sections/VerCompradores'));
+const AlertaStock = lazy(() => import('@/sections/AlertaStock'));
+const HacerCompras = lazy(() => import('@/sections/HacerCompras'));
+const AprobarProductos = lazy(() => import('@/sections/AprobarProductos'));
+const Salarios = lazy(() => import('@/sections/Salarios'));
+const ReporteVentaDiaria = lazy(() => import('@/sections/ReporteVentaDiaria'));
+const Fiados = lazy(() => import('@/sections/Fiados'));
 
 export default function App() {
   const { user, loading: authLoading, logout } = useAuth();
@@ -120,6 +124,9 @@ export default function App() {
 
   const activeItem = menuItems.find(item => item.id === activeSection.id);
 
+  // Fallback de Suspense mientras carga el chunk de la sección
+  const SectionFallback = () => <SkeletonCards count={3} />;
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <div className="hidden lg:block">
@@ -156,7 +163,9 @@ export default function App() {
         <ConflictResolver />
 
         <main key={dataVersion} className="flex-1 overflow-auto p-4 lg:p-6">
-          {renderSection()}
+          <Suspense fallback={<SectionFallback />}>
+            {renderSection()}
+          </Suspense>
         </main>
       </div>
 
@@ -167,6 +176,9 @@ export default function App() {
           <AvisoSolicitudes onProcesar={bumpDataVersion} />
         </>
       )}
+
+      {/* Botón volver arriba */}
+      <ScrollToTop threshold={400} />
     </div>
   );
 }

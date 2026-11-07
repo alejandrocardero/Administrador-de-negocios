@@ -1,14 +1,17 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { corsErrorResponse, corsSuccessResponse, handleCors, getCorsHeaders, validateOrigin } from '../_shared/cors.ts'
+import { withRateLimit } from '../_shared/rate-limit.ts'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  const corsResponse = handleCors(req)
+  if (corsResponse) return corsResponse
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+  // Validate origin for mutating requests
+  const { valid, origin } = validateOrigin(req)
+  if (!valid && req.method !== 'GET') {
+    return corsErrorResponse('Origin not allowed', 403, origin)
   }
 
   try {
@@ -17,6 +20,11 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
+
+    // Only allow POST for onboarding
+    if (req.method !== 'POST') {
+      return corsErrorResponse('Method not allowed', 405, origin)
+    }
 
     const body = await req.json()
     const {
@@ -35,26 +43,50 @@ serve(async (req) => {
       roles
     } = body
 
-    // Validaciones
-    if (!nombre || !slug || !jefe_nombre || !jefe_email || !jefe_password) {
-      return new Response(
-        JSON.stringify({ error: 'Faltan campos obligatorios' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+    // Input validation with detailed errors
+    const errors: string[] = []
+    
+    if (!nombre || typeof nombre !== 'string' || nombre.trim().length < 2) {
+      errors.push('El nombre del negocio es obligatorio (mínimo 2 caracteres)')
+    }
+    
+    if (!slug || typeof slug !== 'string' || !/^[a-z0-9-]{3,50}$/.test(slug)) {
+      errors.push('El identificador (slug) debe tener 3-50 caracteres: minúsculas, números y guiones')
+    }
+    
+    if (!jefe_nombre || typeof jefe_nombre !== 'string' || jefe_nombre.trim().length < 2) {
+      errors.push('El nombre del jefe es obligatorio (mínimo 2 caracteres)')
+    }
+    
+    if (!jefe_email || typeof jefe_email !== 'string' || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(jefe_email)) {
+      errors.push('El email del jefe no es válido')
+    }
+    
+    if (!jefe_password || typeof jefe_password !== 'string' || jefe_password.length < 6) {
+      errors.push('La contraseña debe tener al menos 6 caracteres')
     }
 
-    // Validar roles requeridos
-    const requiredRoles = ['admin', 'comprador', 'vendedor']
+    // Validate required roles
+    const requiredRoles = ['admin', 'comprador', 'vendedor'] as const
     for (const role of requiredRoles) {
-      if (!roles?.[role]?.username || !roles?.[role]?.password || !roles?.[role]?.nombre) {
-        return new Response(
-          JSON.stringify({ error: `Faltan credenciales para rol ${role}` }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        )
+      const roleData = roles?.[role]
+      if (!roleData?.username || typeof roleData.username !== 'string' || 
+          !/^[a-z0-9_.-]{3,30}$/.test(roleData.username)) {
+        errors.push(`Usuario inválido para rol ${role}: 3-30 caracteres (letras, números, punto, guion o guion bajo)`)
+      }
+      if (!roleData?.password || typeof roleData.password !== 'string' || roleData.password.length < 6) {
+        errors.push(`Contraseña inválida para rol ${role}: mínimo 6 caracteres`)
+      }
+      if (!roleData?.nombre || typeof roleData.nombre !== 'string' || roleData.nombre.trim().length < 2) {
+        errors.push(`Nombre inválido para rol ${role}: mínimo 2 caracteres`)
       }
     }
 
-    // Verificar slug único
+    if (errors.length > 0) {
+      return corsErrorResponse(errors.join('; '), 400, origin)
+    }
+
+    // Check slug uniqueness
     const { data: existingSlug } = await supabaseAdmin
       .from('businesses')
       .select('id')
@@ -62,47 +94,51 @@ serve(async (req) => {
       .single()
 
     if (existingSlug) {
-      return new Response(
-        JSON.stringify({ error: 'El nombre corto (slug) ya está en uso' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return corsErrorResponse('El nombre corto (slug) ya está en uso', 400, origin)
     }
 
-    // Llamar función RPC de onboarding atómico
+    // Call atomic onboarding RPC
     const { data, error } = await supabaseAdmin.rpc('onboard_business', {
-      p_nombre: nombre,
-      p_slug: slug,
-      p_nit: nit || '',
-      p_direccion: direccion || '',
-      p_telefono: telefono || '',
-      p_email: email || '',
+      p_nombre: nombre.trim(),
+      p_slug: slug.trim().toLowerCase(),
+      p_nit: nit?.trim() || null,
+      p_direccion: direccion?.trim() || null,
+      p_telefono: telefono?.trim() || null,
+      p_email: email?.trim() || null,
       p_regimen: regimen || 'simplificado',
-      p_tarifa_iva: tarifa_iva || 19,
+      p_tarifa_iva: tarifa_iva ?? 19,
       p_moneda: moneda || 'COP',
-      p_jefe_nombre: jefe_nombre,
-      p_jefe_email: jefe_email,
+      p_jefe_nombre: jefe_nombre.trim(),
+      p_jefe_email: jefe_email.trim().toLowerCase(),
       p_jefe_password: jefe_password,
       p_roles_json: roles
     })
 
     if (error) {
       console.error('Onboard error:', error)
-      return new Response(
-        JSON.stringify({ error: error.message }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return corsErrorResponse(error.message, 400, origin)
     }
 
-    return new Response(
-      JSON.stringify(data),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    // Log audit event (non-blocking)
+    try {
+      await supabaseAdmin.rpc('log_audit_event', {
+        p_event_type: 'business_created',
+        p_business_id: data?.business_id,
+        p_user_id: data?.owner_id,
+        p_severity: 'info',
+        p_details: { slug: nombre, owner_email: jefe_email }
+      })
+    } catch (auditError) {
+      console.warn('Audit log failed:', auditError)
+    }
+
+    return corsSuccessResponse(data, 200, origin)
 
   } catch (err) {
     console.error('Edge function error:', err)
-    return new Response(
-      JSON.stringify({ error: 'Error interno del servidor' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    return corsErrorResponse('Error interno del servidor', 500, origin)
   }
-})
+}
+
+// Wrap with rate limiting (onboard: 5 req/min per IP)
+serve(withRateLimit(handler))

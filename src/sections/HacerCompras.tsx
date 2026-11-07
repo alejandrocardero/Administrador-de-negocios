@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { Plus, Trash2, Receipt, Eye, Loader2, SearchX } from 'lucide-react';
+import { Plus, Trash2, Receipt, Eye, Loader2, SearchX, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
   DialogDescription, DialogFooter
@@ -19,13 +20,15 @@ import {
 import {
   PageHeader, EmptyState, SkeletonTable, usePagination, TablePagination
 } from '@/components/shared';
-import { useCompras, useCompradores, useProductos, formatCurrency, formatDate, toFechaLocal } from '@/hooks/supabase/useSupabaseData';
-import type { Compra, DetalleCompra, Comprador, Producto } from '@/types';
+import { useCompras, useCompradores, useProductos, useProductosPendientesAprobacion, formatCurrency, formatDate, toFechaLocal } from '@/hooks/supabase/useSupabaseData';
+import type { Compra, DetalleCompra, Comprador, Producto, SolicitudProductoTipo } from '@/types';
+import { ActionButton } from '@/components/ui/action-button';
+import { supabase } from '@/lib/supabase';
 
 export default function HacerCompras() {
   const { data: compras, loading, create: crearCompra, refetch: refetchCompras } = useCompras();
   const { data: compradores } = useCompradores();
-  const { data: productos, update: actualizarProducto, create: crearProducto, refetch: refetchProductos } = useProductos();
+  const { data: productos, update: actualizarProducto, refetch: refetchProductos } = useProductos();
 
   const [selectedCompra, setSelectedCompra] = useState<Compra | null>(null);
 
@@ -37,23 +40,32 @@ export default function HacerCompras() {
   const comprasOrdenadas = useMemo(() => compras.slice().reverse(), [compras]);
   const { pageItems, page, pageCount, setPage } = usePagination(comprasOrdenadas, 10);
 
+  const { getMisSolicitudes, crearSolicitud } = useProductosPendientesAprobacion();
+
   const [nuevaCompraOpen, setNuevaCompraOpen] = useState(false);
   const [compradorSearch, setCompradorSearch] = useState('');
   const [selectedComprador, setSelectedComprador] = useState<Comprador | null>(null);
   const [productoSearch, setProductoSearch] = useState('');
   const [compradorSugOpen, setCompradorSugOpen] = useState(false);
   const [productoSugOpen, setProductoSugOpen] = useState(false);
-  // Alta rápida de un producto que NO existe en el inventario (desde el buscador)
-  const [nuevoProductoOpen, setNuevoProductoOpen] = useState(false);
-  const [creandoProducto, setCreandoProducto] = useState(false);
-  const [nuevoProductoForm, setNuevoProductoForm] = useState({
+  
+  // Flujo de aprobación para productos nuevos y cambios de precio
+  const [solicitudOpen, setSolicitudOpen] = useState(false);
+  const [solicitudTipo, setSolicitudTipo] = useState<SolicitudProductoTipo>('nuevo');
+  const [productoParaSolicitud, setProductoParaSolicitud] = useState<Producto | null>(null);
+  const [solicitudForm, setSolicitudForm] = useState({
     nombre: '',
-    codigo: '',
     categoria: 'otros' as Producto['categoria'],
-    precioVenta: '',
-    stockMinimo: '5',
+    precioCompra: '',
+    cantidadInicial: '1',
     unidad: 'unidad',
+    notas: '',
   });
+  const [enviandoSolicitud, setEnviandoSolicitud] = useState(false);
+  
+  const misSolicitudes = useMemo(() => getMisSolicitudes(selectedComprador?.id || ''), [getMisSolicitudes, selectedComprador?.id]);
+  const solicitudesPendientesComprador = misSolicitudes.filter(s => s.estado === 'pendiente');
+  
   // Productos creados en esta compra: aún no aparecen en `productos` (lista del hook)
   const productosCreadosRef = useRef<Producto[]>([]);
   const [detalles, setDetalles] = useState<DetalleCompra[]>([]);
@@ -101,6 +113,7 @@ export default function HacerCompras() {
   const handleAddProductoConCantidad = (producto: Producto, cantidad: number) => {
     const existingIndex = detalles.findIndex(d => d.productoId === producto.id);
 
+    // Si ya está en la compra, solo actualizar cantidad
     if (existingIndex >= 0) {
       const newDetalles = [...detalles];
       const detalle = newDetalles[existingIndex];
@@ -111,64 +124,98 @@ export default function HacerCompras() {
         subtotal: newCantidad * detalle.precioUnitario,
       };
       setDetalles(newDetalles);
-    } else {
-      const nuevoDetalle: DetalleCompra = {
-        productoId: producto.id,
-        productoNombre: producto.nombre,
-        cantidad: cantidad,
-        precioUnitario: producto.precioCompra,
-        subtotal: cantidad * producto.precioCompra,
-      };
-      setDetalles([...detalles, nuevoDetalle]);
+      setProductoSearch('');
+      setProductoSugOpen(false);
+      return;
     }
+
+    // Verificar si el precio de compra ingresado difiere del precio actual del producto
+    // El precio real se captura en el input de la tabla de detalles
+    // Aquí solo agregamos con el precio actual del producto
+    
+    const nuevoDetalle: DetalleCompra = {
+      productoId: producto.id,
+      productoNombre: producto.nombre,
+      cantidad: cantidad,
+      precioUnitario: producto.precioCompra,
+      subtotal: cantidad * producto.precioCompra,
+    };
+    setDetalles([...detalles, nuevoDetalle]);
     setProductoSearch('');
     setProductoSugOpen(false);
   };
 
-  const generarCodigoProducto = (nombre: string) => {
-    const base = nombre.replace(/\s+/g, '').slice(0, 4).toUpperCase() || 'PROD';
-    return `${base}-${Math.floor(1000 + Math.random() * 9000)}`;
-  };
-
-  const handleAbrirNuevoProducto = () => {
+  const handleAbrirSolicitudNuevo = () => {
     const nombre = productoSearch.trim();
-    setNuevoProductoForm(prev => ({
-      ...prev,
+    if (!nombre) return;
+    setSolicitudTipo('nuevo');
+    setProductoParaSolicitud(null);
+    setSolicitudForm({
       nombre,
-      codigo: generarCodigoProducto(nombre),
-    }));
+      categoria: 'otros',
+      precioCompra: '',
+      cantidadInicial: '1',
+      unidad: 'unidad',
+      notas: '',
+    });
     setProductoSugOpen(false);
-    setNuevoProductoOpen(true);
+    setSolicitudOpen(true);
   };
 
-  // Crea el producto en el inventario (etiquetado como "Nuevo") y lo agrega a la compra
-  const handleGuardarNuevoProducto = async () => {
-    if (creandoProducto) return;
-    const nombre = nuevoProductoForm.nombre.trim();
-    if (!nombre) return;
-    setCreandoProducto(true);
+  const handleAbrirSolicitudCambioPrecio = (producto: Producto, precioNuevo: number) => {
+    setSolicitudTipo('cambio_precio');
+    setProductoParaSolicitud(producto);
+    setSolicitudForm({
+      nombre: producto.nombre,
+      categoria: producto.categoria,
+      precioCompra: precioNuevo.toString(),
+      cantidadInicial: '1',
+      unidad: producto.unidad,
+      notas: `Cambio de precio: anterior ${formatCurrency(producto.precioCompra)} → nuevo ${formatCurrency(precioNuevo)}`,
+    });
+    setProductoSugOpen(false);
+    setSolicitudOpen(true);
+  };
+
+  const handleEnviarSolicitud = async () => {
+    if (enviandoSolicitud || !selectedComprador) return;
+    
+    const nombre = solicitudForm.nombre.trim();
+    const precioCompra = parseFloat(solicitudForm.precioCompra);
+    const cantidadInicial = parseInt(solicitudForm.cantidadInicial);
+    
+    if (!nombre || isNaN(precioCompra) || precioCompra <= 0 || isNaN(cantidadInicial) || cantidadInicial <= 0) {
+      toast.error('Complete todos los campos obligatorios');
+      return;
+    }
+    
+    setEnviandoSolicitud(true);
     try {
-      const creado = await crearProducto({
-        codigo: nuevoProductoForm.codigo.trim() || generarCodigoProducto(nombre),
+      await crearSolicitud({
+        compradorId: selectedComprador.id,
         nombre,
-        descripcion: '',
-        categoria: nuevoProductoForm.categoria,
-        precioCompra: 0, // el precio real se fija al guardar la compra (columna P. Unitario)
-        precioVenta: parseFloat(nuevoProductoForm.precioVenta) || 0,
-        porcentajeGanancia: 0,
-        stock: 0, // el stock entra con la compra que se está registrando
-        stockMinimo: parseInt(nuevoProductoForm.stockMinimo) || 0,
-        unidad: nuevoProductoForm.unidad.trim() || 'unidad',
-        esNuevo: true,
+        categoria: solicitudForm.categoria,
+        precioCompra,
+        cantidadInicial,
+        unidad: solicitudForm.unidad,
+        tipo: solicitudTipo,
+        productoExistenteId: productoParaSolicitud?.id,
+        precioCompraAnterior: productoParaSolicitud?.precioCompra,
+        notas: solicitudForm.notas,
       });
-      if (creado) {
-        productosCreadosRef.current = [...productosCreadosRef.current, creado];
-        handleAddProductoConCantidad(creado, 1);
-      }
-      setNuevoProductoOpen(false);
-      setNuevoProductoForm({ nombre: '', codigo: '', categoria: 'otros', precioVenta: '', stockMinimo: '5', unidad: 'unidad' });
+      
+      toast.success(solicitudTipo === 'nuevo' 
+        ? 'Solicitud de producto nuevo enviada para aprobación' 
+        : 'Solicitud de cambio de precio enviada para aprobación');
+      
+      setSolicitudOpen(false);
+      setSolicitudForm({ nombre: '', categoria: 'otros', precioCompra: '', cantidadInicial: '1', unidad: 'unidad', notas: '' });
+      setProductoParaSolicitud(null);
+    } catch (error) {
+      console.error('Error enviando solicitud:', error);
+      toast.error('Error al enviar la solicitud');
     } finally {
-      setCreandoProducto(false);
+      setEnviandoSolicitud(false);
     }
   };
 
@@ -189,10 +236,28 @@ export default function HacerCompras() {
   const handleUpdatePrecio = (index: number, precio: number) => {
     if (precio < 0) return;
     const newDetalles = [...detalles];
+    const detalle = newDetalles[index];
+    const producto = productos.find(p => p.id === detalle.productoId);
+    
+    // Si el precio difiere del precio de compra actual del producto, ofrecer solicitud de cambio
+    if (producto && Math.abs(precio - producto.precioCompra) > 0.01) {
+      // Actualizar el precio en el detalle
+      newDetalles[index] = {
+        ...detalle,
+        precioUnitario: precio,
+        subtotal: detalle.cantidad * precio,
+      };
+      setDetalles(newDetalles);
+      
+      // Mostrar dialog para solicitar cambio de precio
+      handleAbrirSolicitudCambioPrecio(producto, precio);
+      return;
+    }
+    
     newDetalles[index] = {
-      ...newDetalles[index],
+      ...detalle,
       precioUnitario: precio,
-      subtotal: newDetalles[index].cantidad * precio,
+      subtotal: detalle.cantidad * precio,
     };
     setDetalles(newDetalles);
   };
@@ -229,9 +294,16 @@ export default function HacerCompras() {
         const producto = productos.find(p => p.id === detalle.productoId)
           ?? productosCreadosRef.current.find(p => p.id === detalle.productoId);
         if (producto) {
+          const nuevoStock = producto.stock + detalle.cantidad;
           await actualizarProducto(producto.id, {
-            stock: producto.stock + detalle.cantidad,
+            stock: nuevoStock,
             precioCompra: detalle.precioUnitario,
+          });
+          // Limpiar tag si corresponde (re-stock o stock=0)
+          await supabase.rpc('limpiar_tag_si_corresponde', {
+            p_producto_id: producto.id,
+            p_nueva_entrada: detalle.cantidad,
+            p_nuevo_stock: nuevoStock
           });
         }
       }
@@ -427,24 +499,40 @@ export default function HacerCompras() {
                 {productoSugOpen && (filteredProductos.length > 0 || (productoSearch.trim() !== '' && busquedaSinCoincidenciaExacta)) && (
                   <div className="absolute z-10 w-full mt-1 max-h-40 overflow-y-auto bg-popover border border-border rounded-md shadow-lg">
                     {filteredProductos.map(p => (
-                      <button
-                        key={p.id}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => handleAddProductoConCantidad(p, 1)}
-                        className="w-full px-3 py-2 text-left hover:bg-accent flex justify-between"
-                      >
-                        <span>{p.nombre} ({formatCurrency(p.precioCompra)})</span>
-                        <Badge variant="secondary">{p.stock} {p.unidad}</Badge>
-                      </button>
+                      <div key={p.id} className="px-3 py-2">
+                        <button
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => handleAddProductoConCantidad(p, 1)}
+                          className="w-full px-3 py-2 text-left hover:bg-accent flex justify-between"
+                        >
+                          <span>{p.nombre} ({formatCurrency(p.precioCompra)})</span>
+                          <Badge variant="secondary">{p.stock} {p.unidad}</Badge>
+                        </button>
+                        {/* Opción para solicitar cambio de precio si el comprador quiere otro precio */}
+                        <div className="ml-8 mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>Si el precio difiere:</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleAbrirSolicitudCambioPrecio(p, p.precioCompra); // Se editará en el formulario
+                            }}
+                          >
+                            Solicitar cambio de precio
+                          </Button>
+                        </div>
+                      </div>
                     ))}
                     {productoSearch.trim() !== '' && busquedaSinCoincidenciaExacta && (
                       <button
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={handleAbrirNuevoProducto}
+                        onClick={handleAbrirSolicitudNuevo}
                         className="w-full px-3 py-2 text-left hover:bg-primary/10 border-t border-border flex items-center gap-2 text-primary font-medium"
                       >
                         <Plus className="w-4 h-4 shrink-0" />
-                        <span>Agregar "{productoSearch.trim()}" como producto nuevo (irá al inventario con etiqueta "Nuevo")</span>
+                        <span>Agregar "{productoSearch.trim()}" como producto nuevo (requiere aprobación)</span>
                       </button>
                     )}
                   </div>
@@ -541,98 +629,155 @@ export default function HacerCompras() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog para crear un producto nuevo que no está en el inventario */}
-      <Dialog open={nuevoProductoOpen} onOpenChange={setNuevoProductoOpen}>
-        <DialogContent>
+      {/* Dialog para solicitar aprobación de producto nuevo o cambio de precio */}
+      <Dialog open={solicitudOpen} onOpenChange={setSolicitudOpen}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Agregar Producto Nuevo</DialogTitle>
+            <DialogTitle>{solicitudTipo === 'nuevo' ? 'Solicitar Producto Nuevo' : 'Solicitar Cambio de Precio'}</DialogTitle>
             <DialogDescription>
-              Se creará en el inventario con la etiqueta <Badge className="bg-primary text-primary-foreground">Nuevo</Badge> y se agregará a esta compra.
+              {solicitudTipo === 'nuevo' 
+                ? 'El admin revisará y definirá precio de venta y stock mínimo. Se agregará al inventario con etiqueta "Nuevo".'
+                : `Cambio de precio para "${productoParaSolicitud?.nombre}". El admin reestructurará el precio de venta. Se agregará etiqueta "Cambio de precio" por 1 semana.`}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4">
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="np-nombre">Nombre *</Label>
-              <Input
-                id="np-nombre"
-                value={nuevoProductoForm.nombre}
-                onChange={(e) => setNuevoProductoForm({ ...nuevoProductoForm, nombre: e.target.value })}
-                placeholder="Nombre del producto"
-              />
+          <div className="space-y-4 py-4">
+            {productoParaSolicitud && (
+              <div className="p-4 bg-muted rounded-lg border border-warning/30">
+                <p className="text-sm font-medium text-warning-foreground">Producto existente: {productoParaSolicitud.nombre}</p>
+                <p className="text-xs text-muted-foreground">Precio actual: {formatCurrency(productoParaSolicitud.precioCompra)} → Nuevo: {formatCurrency(parseFloat(solicitudForm.precioCompra) || 0)}</p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="sol-nombre">Nombre *</Label>
+                <Input
+                  id="sol-nombre"
+                  value={solicitudForm.nombre}
+                  onChange={(e) => setSolicitudForm({ ...solicitudForm, nombre: e.target.value })}
+                  placeholder="Nombre del producto"
+                  disabled={solicitudTipo === 'cambio_precio'}
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="sol-categoria">Categoría *</Label>
+                <Select
+                  value={solicitudForm.categoria}
+                  onValueChange={(v) => setSolicitudForm({ ...solicitudForm, categoria: v as Producto['categoria'] })}
+                  disabled={solicitudTipo === 'cambio_precio'}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="aseo">Aseo</SelectItem>
+                    <SelectItem value="comida">Comida</SelectItem>
+                    <SelectItem value="bebidas">Bebidas</SelectItem>
+                    <SelectItem value="cerveza">Cerveza</SelectItem>
+                    <SelectItem value="otros">Otros</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="sol-precio">Precio de Compra *</Label>
+                <Input
+                  id="sol-precio"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={solicitudForm.precioCompra}
+                  onChange={(e) => setSolicitudForm({ ...solicitudForm, precioCompra: e.target.value })}
+                  placeholder="0"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="sol-cantidad">Cantidad Inicial *</Label>
+                <Input
+                  id="sol-cantidad"
+                  type="number"
+                  min="1"
+                  value={solicitudForm.cantidadInicial}
+                  onChange={(e) => setSolicitudForm({ ...solicitudForm, cantidadInicial: e.target.value })}
+                  placeholder="1"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="sol-unidad">Unidad</Label>
+                <Input
+                  id="sol-unidad"
+                  value={solicitudForm.unidad}
+                  onChange={(e) => setSolicitudForm({ ...solicitudForm, unidad: e.target.value })}
+                  placeholder="unidad"
+                  disabled={solicitudTipo === 'cambio_precio'}
+                />
+              </div>
             </div>
+
             <div className="space-y-2">
-              <Label htmlFor="np-codigo">Código</Label>
-              <Input
-                id="np-codigo"
-                value={nuevoProductoForm.codigo}
-                onChange={(e) => setNuevoProductoForm({ ...nuevoProductoForm, codigo: e.target.value })}
-                placeholder="Se genera automáticamente"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="np-categoria">Categoría *</Label>
-              <Select
-                value={nuevoProductoForm.categoria}
-                onValueChange={(v) => setNuevoProductoForm({ ...nuevoProductoForm, categoria: v as Producto['categoria'] })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="aseo">Aseo</SelectItem>
-                  <SelectItem value="comida">Comida</SelectItem>
-                  <SelectItem value="bebidas">Bebidas</SelectItem>
-                  <SelectItem value="cerveza">Cerveza</SelectItem>
-                  <SelectItem value="otros">Otros</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="np-precio">Precio de Venta *</Label>
-              <Input
-                id="np-precio"
-                type="number"
-                min="0"
-                step="any"
-                value={nuevoProductoForm.precioVenta}
-                onChange={(e) => setNuevoProductoForm({ ...nuevoProductoForm, precioVenta: e.target.value })}
-                placeholder="0"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="np-minimo">Stock Mínimo</Label>
-              <Input
-                id="np-minimo"
-                type="number"
-                min="0"
-                value={nuevoProductoForm.stockMinimo}
-                onChange={(e) => setNuevoProductoForm({ ...nuevoProductoForm, stockMinimo: e.target.value })}
-                placeholder="5"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="np-unidad">Unidad</Label>
-              <Input
-                id="np-unidad"
-                value={nuevoProductoForm.unidad}
-                onChange={(e) => setNuevoProductoForm({ ...nuevoProductoForm, unidad: e.target.value })}
-                placeholder="unidad"
+              <Label htmlFor="sol-notas">Notas</Label>
+              <Textarea
+                id="sol-notas"
+                value={solicitudForm.notas}
+                onChange={(e) => setSolicitudForm({ ...solicitudForm, notas: e.target.value })}
+                placeholder="Información adicional para el admin..."
+                rows={3}
               />
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setNuevoProductoOpen(false)}>
+            <Button variant="outline" onClick={() => { setSolicitudOpen(false); setSolicitudForm({ nombre: '', categoria: 'otros', precioCompra: '', cantidadInicial: '1', unidad: 'unidad', notas: '' }); setProductoParaSolicitud(null); }}>
               Cancelar
             </Button>
-            <Button onClick={handleGuardarNuevoProducto} disabled={creandoProducto || !nuevoProductoForm.nombre.trim()}>
-              {creandoProducto && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Crear y Agregar a la Compra
-            </Button>
+            <ActionButton onAction={handleEnviarSolicitud} disabled={enviandoSolicitud || !solicitudForm.nombre.trim() || !solicitudForm.precioCompra}>
+              {enviandoSolicitud && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Enviar para Aprobación
+            </ActionButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Panel de mis solicitudes pendientes */}
+      {solicitudesPendientesComprador.length > 0 && (
+        <Card className="border-warning/30 bg-warning/5">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold flex items-center gap-2">
+                <Clock className="w-4 h-4 text-warning" />
+                Mis Solicitudes Pendientes ({solicitudesPendientesComprador.length})
+              </h3>
+            </div>
+            <div className="space-y-2 max-h-40 overflow-y-auto">
+              {solicitudesPendientesComprador.map(s => (
+                <div key={s.id} className="p-3 bg-card rounded-lg border border-border flex items-center justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium truncate">{s.nombre}</span>
+                      <Badge variant="outline" className={s.tipo === 'nuevo' ? 'bg-blue/10 text-blue' : 'bg-orange/10 text-orange'}>
+                        {s.tipo === 'nuevo' ? 'Nuevo' : 'Cambio Precio'}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {s.tipo === 'nuevo' 
+                        ? `Categoría: ${s.categoria} | Precio compra: ${formatCurrency(s.precioCompra)} | Cantidad: ${s.cantidadInicial}`
+                        : `Cambio: ${formatCurrency(s.precioCompraAnterior || 0)} → ${formatCurrency(s.precioCompra)}`}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Enviada: {formatDate(s.fechaCreacion)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge variant="secondary" className="text-xs">Pendiente</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {selectedCompra && (
         <Dialog open={!!selectedCompra} onOpenChange={() => setSelectedCompra(null)}>

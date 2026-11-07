@@ -14,6 +14,7 @@ import type {
   RegistroIPVE,
   Pedido,
   SolicitudProductoNuevo,
+  ProductoPendienteAprobacion,
   SalarioFijo,
   Fiado,
   ProductRotationStats
@@ -44,7 +45,9 @@ import {
   toFiado,
   fromFiado,
   fromRegistroIPVE,
-  fromSolicitud
+  fromSolicitud,
+  toProductoPendienteAprobacion,
+  fromProductoPendienteAprobacion
 } from '@/lib/mappers'
 
 export { formatCurrency, formatDate, formatDateTime, generateId, toFechaLocal } from '@/lib/formatters'
@@ -578,6 +581,11 @@ export function useRegistrosIPVE(): IPVEReturn {
       } else {
         await base.create({ fecha, vendedorId, vendedorNombre: vendedorNombre || '', productoId, productoNombre, inicio: 0, entrada: cantidad, final: 0, precioVenta, tipo: 'diario' })
       }
+      // Limpiar tag si hay entrada (re-stock)
+      await supabase.rpc('limpiar_tag_si_corresponde', {
+        p_producto_id: productoId,
+        p_nueva_entrada: cantidad
+      })
     })
   }, [base])
 
@@ -793,6 +801,96 @@ export function useSolicitudesProductoNuevo(): SolicitudesProductoNuevoReturn {
   )
 
   return { ...base, aprobarSolicitud, rechazarSolicitud, getSolicitudesPendientes }
+}
+
+interface ProductosPendientesAprobacionReturn extends DomainReturn<ProductoPendienteAprobacion> {
+  solicitudes: ProductoPendienteAprobacion[]
+  getPendientes: () => ProductoPendienteAprobacion[]
+  getMisSolicitudes: (compradorId: string) => ProductoPendienteAprobacion[]
+  crearSolicitud: (input: Omit<ProductoPendienteAprobacion, 'id' | 'businessId' | 'compradorNombre' | 'fechaCreacion' | 'estado' | 'fechaResolucion' | 'resueltoPor'>) => Promise<ProductoPendienteAprobacion | null>
+  aprobarSolicitud: (id: string, precioVenta: number, stockMinimo: number, porcentajeGanancia: number, comentarioAdmin?: string) => Promise<Producto | null>
+  rechazarSolicitud: (id: string, comentarioAdmin?: string) => Promise<void>
+}
+
+export function useProductosPendientesAprobacion(): ProductosPendientesAprobacionReturn {
+  const { user } = useAuth()
+  const businessId = user?.business_id
+  const { data: compradores } = useCompradores()
+  
+  const base = useMappedData<Tables<'productos_pendientes_aprobacion'>, ProductoPendienteAprobacion>(
+    { table: 'productos_pendientes_aprobacion', orderBy: { column: 'fecha_creacion', ascending: false } },
+    toProductoPendienteAprobacion,
+    fromProductoPendienteAprobacion
+  )
+
+  const getPendientes = useCallback(() =>
+    base.data.filter(s => s.estado === 'pendiente'),
+    [base.data]
+  )
+
+  const getMisSolicitudes = useCallback((compradorId: string) =>
+    base.data.filter(s => s.compradorId === compradorId),
+    [base.data]
+  )
+
+  const crearSolicitud = useCallback(async (input: Omit<ProductoPendienteAprobacion, 'id' | 'businessId' | 'compradorNombre' | 'fechaCreacion' | 'estado' | 'fechaResolucion' | 'resueltoPor'>) => {
+    if (!businessId || !user) throw new Error('No business or user')
+    
+    const comprador = compradores.find(c => c.id === input.compradorId)
+    if (!comprador) throw new Error('Comprador no encontrado')
+    
+    const { data, error } = await supabase.rpc('crear_solicitud_producto', {
+      p_comprador_id: input.compradorId,
+      p_nombre: input.nombre,
+      p_categoria: input.categoria,
+      p_precio_compra: input.precioCompra,
+      p_cantidad_inicial: input.cantidadInicial,
+      p_unidad: input.unidad,
+      p_tipo: input.tipo,
+      p_producto_existente_id: input.productoExistenteId,
+      p_precio_compra_anterior: input.precioCompraAnterior,
+      p_notas: input.notas
+    })
+    
+    if (error) throw error
+    await base.refetch()
+    return data ? toProductoPendienteAprobacion(data) : null
+  }, [businessId, user, compradores, base, supabase])
+
+  const aprobarSolicitud = useCallback(async (id: string, precioVenta: number, stockMinimo: number, porcentajeGanancia: number, comentarioAdmin?: string) => {
+    const { data, error } = await supabase.rpc('aprobar_solicitud_producto', {
+      p_solicitud_id: id,
+      p_precio_venta: precioVenta,
+      p_stock_minimo: stockMinimo,
+      p_porcentaje_ganancia: porcentajeGanancia,
+      p_comentario_admin: comentarioAdmin
+    })
+    
+    if (error) throw error
+    await base.refetch()
+    // Also refetch productos to get the new/updated product
+    return data ? toProducto(data) : null
+  }, [base, supabase])
+
+  const rechazarSolicitud = useCallback(async (id: string, comentarioAdmin?: string) => {
+    const { error } = await supabase.rpc('rechazar_solicitud_producto', {
+      p_solicitud_id: id,
+      p_comentario_admin: comentarioAdmin
+    })
+    
+    if (error) throw error
+    await base.refetch()
+  }, [base, supabase])
+
+  return { 
+    ...base, 
+    solicitudes: base.data, 
+    getPendientes, 
+    getMisSolicitudes,
+    crearSolicitud,
+    aprobarSolicitud, 
+    rechazarSolicitud 
+  }
 }
 
 interface SalariosFijosReturn extends DomainReturn<SalarioFijo> {

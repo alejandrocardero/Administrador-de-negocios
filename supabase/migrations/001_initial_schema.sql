@@ -518,6 +518,12 @@ EXCEPTION
 END;
 $$;
 
+REVOKE ALL ON FUNCTION get_user_memberships() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION get_user_memberships() TO authenticated;
+
+REVOKE ALL ON FUNCTION onboard_business(TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, TEXT, TEXT, TEXT, TEXT, JSONB) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION onboard_business(TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, TEXT, TEXT, TEXT, TEXT, JSONB) TO anon, authenticated;
+
 -- ============================================
 -- FUNCIÓN LOGIN PARA ROLES VIRTUALES
 -- ============================================
@@ -560,6 +566,12 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION get_user_memberships() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION get_user_memberships() TO authenticated;
+
+REVOKE ALL ON FUNCTION login_virtual_role(UUID, TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION login_virtual_role(UUID, TEXT, TEXT) TO anon, authenticated;
+
 -- ============================================
 -- FUNCIÓN PARA OBTENER MEMBERSHIPS DEL USUARIO ACTUAL
 -- ============================================
@@ -593,3 +605,6 @@ BEGIN
        OR (m.is_virtual = FALSE AND b.owner_id = auth.uid());
 END;
 $$;
+
+REVOKE ALL ON FUNCTION get_user_memberships() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION get_user_memberships() TO authenticated;
